@@ -105,7 +105,7 @@ def get_requests(disk_size):
             print("Invalid input.")
 
 
-def main():
+def run_simulation():
     print("=" * 50)
     print("DISK SCHEDULING SIMULATOR")
     print("=" * 50)
@@ -158,6 +158,18 @@ def main():
 
         print("=" * 40)
 
+def main():
+    while True:
+        run_simulation()
+
+        print("\n + "=" *50)
+        again = input("Do you want to run another simulation? (yes/no): ").strip()>lower()
+
+        if again not in ("yes", "y"):
+            print("\nThank you for using the Disk Scheduling Visualizer!")
+            print("Goodbye!")
+            break 
+        print("\n" + "=" * 50 + "\n")
 
 if __name__ == "__main__":
     main()
