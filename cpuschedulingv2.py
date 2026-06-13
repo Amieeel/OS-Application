@@ -11,199 +11,302 @@ data8 = [["P1",7,0],["P2",5,2],["P3",3,4],["P4",1,5],["P5",2,6],["P6",8,7]]
 data9 = [["P1",1,0],["P2",2,1],["P3",1,2],["P4",2,3],["P5",1,4],["P6",2,5]]
 data10 = [["P1",5,0]]
 
+
 class scheduling_algorithm:
     def __init__(self, data):
         self.data = data
         self.burst_time = []
         self.arrival_time = []
         self.priority = []
-        for i in self.data:
-             self.burst_time.append(i[1])
-             self.arrival_time.append(i[2])
-             if len(self.data[0]) == 4:
-                 self.priority.append(i[3])
+
+        for p in self.data:
+            self.burst_time.append(p[1])
+            self.arrival_time.append(p[2])
+
+            # always include priority slot
+            if len(p) >= 4:
+                self.priority.append(p[3])
+            else:
+                self.priority.append(None)
+
         print(f"Data: {self.data}")
 
+    # ---------------- FCFS ----------------
     def FCFS(self): #Non-Preemptive
         self.process = []
         self.end_time = []
+
         for i,p in enumerate(self.data):
             self.process.append(p[0])
+
             burst = p[1]
             arrival = p[2]
+
             if i == 0:
                 start = arrival
             else:
                 start = max(self.end_time[-1], arrival)
+
             end = start + burst
             self.end_time.append(end)
+
         self.tat = self.turnaround_time(self.end_time, self.arrival_time)
         self.wt = self.waiting_time(self.tat, self.burst_time)
-        return print(f"-- FIRST COME FIRST SERVE -- \nProcess: {self.process} \nTurn Around Time: {self.tat}| {self.average(self.tat)}ms \nWaiting Time: {self.wt}| {self.average(self.wt)}ms")
-    
+
+        return {
+        "algorithm": "FCFS",
+        "process": self.process,
+        "tat": self.tat,
+        "wt": self.wt,
+        "avg_tat": self.average(self.tat),
+        "avg_wt": self.average(self.wt),
+        }
+
+    # ---------------- SJF ----------------
     def SJF(self): #Non-preemptive
         self.process = []
         self.end_time = []
+
         time = 0
         completed = 0
         visited = [False] * len(self.data)
+
         while completed < len(self.data):
             mininum_bursttime = float('inf')
             index = -1
+
             for i,p in enumerate(self.data): #loops thru all process
-                if self.arrival_time[i] <= time and not visited[i] and self.burst_time[i] < mininum_bursttime: #checks if ready and not visited and burst time is less than minimum
-                    mininum_bursttime = self.burst_time[i] #if true, initialize its burst time as the SHORTEST job
-                    index = i #save its index 
-            if index == -1: # if no process was available, add time, every while loop resets it to -1 
-                time+=1
+                if self.arrival_time[i] <= time and not visited[i] and self.burst_time[i] < mininum_bursttime:
+                    mininum_bursttime = self.burst_time[i]
+                    index = i
+
+            if index == -1:
+                time += 1
                 continue
+
             self.process.append(self.data[index][0])
-            self.end_time.insert(index, (time+self.burst_time[index]))
+
+            # FIX: no insert (breaks indexing)
+            self.end_time.append(time + self.burst_time[index])
+
             time += self.burst_time[index]
             visited[index] = True
-            completed+=1
+            completed += 1
+
         self.tat = self.turnaround_time(self.end_time, self.arrival_time)
         self.wt = self.waiting_time(self.tat, self.burst_time)
-        return print(f"-- SHORTEST JOB FIRST -- \nProcess: {self.process} \nTurn Around Time: {self.tat}| {self.average(self.tat)}ms \nWaiting Time: {self.wt}| {self.average(self.wt)}ms")
-        
+
+        return {
+        "algorithm": "SJF",
+        "process": self.process,
+        "tat": self.tat,
+        "wt": self.wt,
+        "avg_tat": self.average(self.tat),
+        "avg_wt": self.average(self.wt),
+        }
+
+    # ---------------- SRT ----------------
     def SRT(self): #Preemptive
         self.process = []
         self.end_time = [0] * len(self.data)
+
         time = 0
         completed = 0
         remaining_time = self.burst_time.copy()
+
         while completed < len(self.data):
             minimum_bursttime = float('inf')
             index = -1
+
             for i,p in enumerate(self.data):
-                if self.arrival_time[i] <= time and 0 < remaining_time[i] < minimum_bursttime: # find ready and if it's the shortest bt
+                if self.arrival_time[i] <= time and 0 < remaining_time[i] < minimum_bursttime:
                     minimum_bursttime = remaining_time[i]
-                    index = i 
-                
+                    index = i
+
             if index == -1:
                 time += 1
                 continue
-            
+
             remaining_time[index] -= 1
+
             if not self.process or self.process[-1] != self.data[index][0]:
                 self.process.append(self.data[index][0])
 
-            time +=1
+            time += 1
+
             if remaining_time[index] == 0:
                 self.end_time[index] = time
-                completed +=1
+                completed += 1
+
         self.tat = self.turnaround_time(self.end_time, self.arrival_time)
         self.wt = self.waiting_time(self.tat, self.burst_time)
-        print(f'-- SHORTEST REMAINING TIME -- \nProcess: {self.process} \nTurn Around Time: {self.tat}| {self.average(self.tat)}ms \nWaiting Time: {self.wt}| {self.average(self.wt)}ms')
 
+        return {
+        "algorithm": "SRT",
+        "process": self.process,
+        "tat": self.tat,
+        "wt": self.wt,
+        "avg_tat": self.average(self.tat),
+        "avg_wt": self.average(self.wt),
+        }
+
+    # ---------------- NON PREEMPTIVE PRIORITY ----------------
     def NonPreemptivePriority(self):
         self.process = []
         self.end_time = []
+
         time = 0
         completed = 0
         visited = [False] * len(self.data)
-        while completed < len(self.data):
-            top_priority = float('inf')
-            index = -1
-            for i,p in enumerate(self.data): #loops thru all process
-                if self.arrival_time[i] <= time and not visited[i] and self.priority[i] < top_priority: #checks if ready and not visited
-                    top_priority = self.priority[i]
-                    index = i
-            if index == -1: # if no process was available, add time, every while loop resets it to -1 
-                time+=1
-                continue
-            self.process.append(self.data[index][0])
-            self.end_time.insert(index, (time+self.burst_time[index]))
-            time += self.burst_time[index]
-            visited[index] = True
-            completed+=1
-        self.tat = self.turnaround_time(self.end_time, self.arrival_time)
-        self.wt = self.waiting_time(self.tat, self.burst_time)
-        return print(f"-- NON PREEMPTIVE PRIORITY -- \nProcess: {self.process} \nTurn Around Time: {self.tat}| {self.average(self.tat)}ms \nWaiting Time: {self.wt}| {self.average(self.wt)}ms")
 
-    def PreemptivePriority(self):
-        self.process = []
-        self.end_time = [0] * len(self.data)
-        time = 0
-        completed = 0
-        remaining_time = self.burst_time.copy()
         while completed < len(self.data):
-            top_priority = float('inf')
+            best = float('inf')
             index = -1
-            for i,p in enumerate(self.data):
-                if self.arrival_time[i] <= time and 0 < remaining_time[i] and self.priority[i] < top_priority: # find ready and if it's top priority
-                    top_priority = self.priority[i]
-                    index = i 
-                
+
+            for i in range(len(self.data)):
+
+                if self.arrival_time[i] <= time and not visited[i]:
+                    if self.priority[i] is not None and self.priority[i] < best:
+                        best = self.priority[i]
+                        index = i
+
             if index == -1:
                 time += 1
                 continue
-            
-            remaining_time[index] -= 1
+
+            self.process.append(self.data[index][0])
+
+            # FIX: avoid insert
+            self.end_time.append(time + self.burst_time[index])
+
+            time += self.burst_time[index]
+            visited[index] = True
+            completed += 1
+
+        self.tat = self.turnaround_time(self.end_time, self.arrival_time)
+        self.wt = self.waiting_time(self.tat, self.burst_time)
+
+        return {
+            "algorithm": "NonPreemptivePriority",
+            "process": self.process,
+            "tat": self.tat,
+            "wt": self.wt,
+            "avg_tat": self.average(self.tat),
+            "avg_wt": self.average(self.wt)
+        }
+
+    # ---------------- PREEMPTIVE PRIORITY ----------------
+    def PreemptivePriority(self):
+        self.process = []
+        self.end_time = [0] * len(self.data)
+        remaining = self.burst_time.copy()
+
+        time = 0
+        completed = 0
+
+        while completed < len(self.data):
+            best = float('inf')
+            index = -1
+
+            for i in range(len(self.data)):
+                if (
+                    self.arrival_time[i] <= time and
+                    remaining[i] > 0 and
+                    self.priority[i] is not None and
+                    self.priority[i] < best
+                ):
+                    best = self.priority[i]
+                    index = i
+
+            if index == -1:
+                time += 1
+                continue
+
+            remaining[index] -= 1
+
             if not self.process or self.process[-1] != self.data[index][0]:
                 self.process.append(self.data[index][0])
 
-            time +=1
-            if remaining_time[index] == 0:
+            time += 1
+
+            if remaining[index] == 0:
                 self.end_time[index] = time
-                completed +=1
+                completed += 1
+
         self.tat = self.turnaround_time(self.end_time, self.arrival_time)
         self.wt = self.waiting_time(self.tat, self.burst_time)
-        print(f'-- PREEMPTIVE PRIORITY -- Process: {self.process} \nTurn Around Time: {self.tat}| {self.average(self.tat)}ms \nWaiting Time: {self.wt}| {self.average(self.wt)}ms')
 
-    def RoundRobin(self):
+        return {
+            "algorithm": "PreemptivePriority",
+            "process": self.process,
+            "tat": self.tat,
+            "wt": self.wt,
+            "avg_tat": self.average(self.tat),
+            "avg_wt": self.average(self.wt)
+        }
+
+    # ---------------- HELPER ----------------
+    def is_better_priority(self, i, best_priority):
+        if self.priority[i] is None:
+            return False
+        return self.priority[i] < best_priority
+
+    def RoundRobin(self, tq):
         self.process = []
         self.end_time = [0] * len(self.data)
         remaining_time = self.burst_time.copy()
-        tq = int(input('Input Time Quantum: '))
+
         time = 0
         completed = 0
+
         while completed < len(self.data):
             ran = False
+
             for i, p in enumerate(self.data):
                 if self.arrival_time[i] <= time and remaining_time[i] > 0:
                     ran = True
+
                     if remaining_time[i] >= tq:
                         remaining_time[i] -= tq
                         time += tq
                         self.process.append(self.data[i][0])
+
                         if remaining_time[i] == 0:
                             self.end_time[i] = time
                             completed += 1
-                    elif 0 < remaining_time[i] < tq:
+
+                    else:
                         time += remaining_time[i]
                         remaining_time[i] = 0
                         self.process.append(self.data[i][0])
                         self.end_time[i] = time
                         completed += 1
+
             if not ran:
                 time += 1
-            self.tat = self.turnaround_time(self.end_time, self.arrival_time)
-            self.wt = self.waiting_time(self.tat, self.burst_time)
-            print(f'-- ROUND ROBIN -- \nProcess: {self.process} \nTurn Around Time: {self.tat}| {self.average(self.tat)}ms \nWaiting Time: {self.wt}| {self.average(self.wt)}ms')
 
-        
+        self.tat = self.turnaround_time(self.end_time, self.arrival_time)
+        self.wt = self.waiting_time(self.tat, self.burst_time)
 
-    # -- TURN AROUND TIME, WAITING TIME, AVERAGE FUNCTIONS --
+        return {
+            "algorithm": "RoundRobin",
+            "process": self.process,
+            "tat": self.tat,
+            "wt": self.wt,
+            "avg_tat": self.average(self.tat),
+            "avg_wt": self.average(self.wt),
+        }
+
+    # ---------------- METRICS ----------------
     def turnaround_time(self, end_time, arrival_time):
-        tat_list = []
-        for e,a in zip(end_time,arrival_time):
-            tat_list.append(e-a)
-        return tat_list
+        return [e - a for e, a in zip(end_time, arrival_time)]
 
-    def waiting_time(self,tat,burst_time):
-        wt_list = []
-        for t,b in zip(tat,burst_time):
-            wt_list.append(t-b)
-        return wt_list
-    
+    def waiting_time(self, tat, burst_time):
+        return [t - b for t, b in zip(tat, burst_time)]
+
     def average(self, list):
         return sum(list) / len(list)
 
+
 trial = scheduling_algorithm(data2)
-# trial.FCFS()
-# trial.SJF()
-# trial.SRT()
-# trial.NonPreemptivePriority()
-# trial.PreemptivePriority()
-trial.RoundRobin()
+trial.RoundRobin(2)
