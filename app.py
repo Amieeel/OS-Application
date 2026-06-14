@@ -2,17 +2,18 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from img_loader import get_images
 from cpuschedulingv2 import scheduling_algorithm
+from process_manager import ProcessTableManager
 
 
 class App(tk.Tk):
-    DESIGN_W = 1920
-    DESIGN_H = 1080
 
     def __init__(self):
         super().__init__()
 
+        # FIXED WINDOW
         self.title("Go Rhythm")
         self.geometry("1420x780")
+        self.resizable(False, False)
 
         # assets
         self.imgs = get_images()
@@ -26,34 +27,20 @@ class App(tk.Tk):
         self.bg_tk = None
         self.bg_name = "home"
 
-        # UI state
-        self.scale = 1
+        # state
         self.updating_ui = False
         self.buttons = {}
 
-        # scheduler 
+        # scheduler + result cache
         self.scheduler = None
+        self.result = None
 
-        self.bind("<Configure>", self.on_resize)
+        # FOR CPU SCHEDULING
+        self.selected_algo = tk.StringVar(value="FCFS")
+        self.cpu_table_manager = None
 
         self.set_background("home")
         self.create_main_menu()
-
-    # ---------------- SCALE ----------------
-    def update_scale(self):
-        self.scale = min(
-            self.winfo_width() / self.DESIGN_W,
-            self.winfo_height() / self.DESIGN_H
-        )
-
-    # ---------------- SCREEN SWITCH ----------------
-    def switch_screen(self, bg, builder):
-        self.updating_ui = True
-        self.clear_buttons()
-        self.canvas.delete("ui")  
-        self.set_background(bg)
-        builder()
-        self.updating_ui = False
         self.render_buttons()
 
     # ---------------- BACKGROUND ----------------
@@ -62,10 +49,9 @@ class App(tk.Tk):
         self.render_background()
 
     def render_background(self):
-        w, h = self.winfo_width(), self.winfo_height()
+        w, h = 1420, 780
 
         img = self.imgs[self.bg_name].resize((w, h), Image.Resampling.LANCZOS)
-
         self.bg_tk = ImageTk.PhotoImage(img)
 
         if self.bg_id is None:
@@ -75,17 +61,21 @@ class App(tk.Tk):
         else:
             self.canvas.itemconfig(self.bg_id, image=self.bg_tk)
 
-    # ---------------- RESIZE ----------------
-    def on_resize(self, event):
-        if event.widget != self:
-            return
+    # ---------------- SCREEN SWITCH ----------------
+    def switch_screen(self, bg, builder):
+        self.updating_ui = True
+        self.clear_buttons()
+        self.canvas.delete("ui")
 
-        self.update_scale()
-        self.render_background()
+        self.set_background(bg)
+        builder()
+
+        self.updating_ui = False
         self.render_buttons()
+        self.after(1, self.render_buttons)
 
     # ---------------- BUTTON SYSTEM ----------------
-    def create_button(self, name, img_name, rx, ry, command):
+    def create_button(self, name, img_name, x, y, command, scale=1.0):
         btn_id = self.canvas.create_image(0, 0, anchor="nw")
 
         self.canvas.tag_bind(btn_id, "<Button-1>", lambda e: command())
@@ -93,43 +83,44 @@ class App(tk.Tk):
         self.buttons[name] = {
             "img": self.imgs[img_name],
             "id": btn_id,
-            "pos": (rx, ry),
-            "tk": None
+            "pos": (x, y),
+            "tk": None,
+            "scale": scale
         }
+
+        self.canvas.tag_raise(btn_id)
 
     def clear_buttons(self):
         for b in self.buttons.values():
             self.canvas.delete(b["id"])
         self.buttons.clear()
 
-    # ---------------- BUTTON RENDER ----------------
     def render_buttons(self):
-        if self.updating_ui or not self.buttons:
+        if self.updating_ui:
             return
 
-        w, h = self.winfo_width(), self.winfo_height()
+        w, h = 1420, 780
 
         for b in self.buttons.values():
             img = b["img"]
+            scale = b.get("scale", 1.0)
 
             x = int(b["pos"][0] * w)
             y = int(b["pos"][1] * h)
 
-            size = (
-                int(img.width * self.scale),
-                int(img.height * self.scale)
-            )
+            new_w = int(img.width * scale)
+            new_h = int(img.height * scale)
 
-            tk_img = ImageTk.PhotoImage(
-                img.resize(size, Image.Resampling.LANCZOS)
-            )
+            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            tk_img = ImageTk.PhotoImage(resized)
 
             b["tk"] = tk_img
 
             self.canvas.itemconfig(b["id"], image=tk_img)
             self.canvas.coords(b["id"], x, y)
+            self.canvas.tag_raise(b["id"])
 
-    # ---------------- ACTIONS ----------------
+    # ---------------- NAV ----------------
     def on_start(self):
         self.switch_screen("select", self.create_select_menu)
 
@@ -139,94 +130,137 @@ class App(tk.Tk):
     def on_CPU(self):
         self.switch_screen("cpu_bg", self.create_cpu_view)
 
-    def on_learn(self): pass
-    def on_about(self): pass
-    def on_MAIN(self): pass
-    def on_VIRT(self): pass
-    def on_DISK(self): pass
-
     # ---------------- MENUS ----------------
-    def create_main_menu(self):
-        self.create_button("start", "start_button", 0.4, 0.45, self.on_start)
-        self.create_button("learn", "learn_button", 0.41, 0.59, self.on_learn)
-        self.create_button("about", "about_button", 0.41, 0.69, self.on_about)
-
-    def create_select_menu(self):
-        self.create_button("back", "back_button", 0.01, 0.1, self.on_back)
-        self.create_button("CPU", "CPU_sched_button", 0.049, 0.25, self.on_CPU)
-        self.create_button("MAIN", "Main_mem_button", 0.28, 0.25, self.on_MAIN)
-        self.create_button("VIRT", "Virt_mem_button", 0.52, 0.25, self.on_VIRT)
-        self.create_button("DISK", "Disk_sched_button", 0.75, 0.25, self.on_DISK)
+    def create_main_menu(self): 
+        self.create_button("start", "start_button", 0.4, 0.45, self.on_start, scale=0.65) 
+        self.create_button("learn", "learn_button", 0.41, 0.59, lambda: None, scale=0.6) 
+        self.create_button("about", "about_button", 0.41, 0.69, lambda: None, scale=0.6) 
+        
+    def create_select_menu(self): 
+        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6) 
+        self.create_button("CPU", "CPU_sched_button", 0.05, 0.25, self.on_CPU, scale=0.8)
 
     # ---------------- CPU VIEW ----------------
     def create_cpu_view(self):
-        if self.scheduler is None:
-            self.scheduler = scheduling_algorithm([
-                ["P1", 5, 0, 3],
-                ["P2", 3, 2, 1],
-                ["P3", 8, 4, 2],
-                ["P4", 6, 6, 4],
-            ])
+        w, h = 1420, 780
 
-        result = self.scheduler.NonPreemptivePriority()
+        self.canvas.delete("ui")
 
-        w = self.winfo_width()
-        x = w // 2
+        # CPU container
+        cont_img = self.imgs["cpu_cont"]
+        cont_w = int(w * 0.9)
+        cont_h = int(h * 0.75)
 
+        resized = cont_img.resize((cont_w, cont_h), Image.Resampling.LANCZOS)
+        self.cpu_cont_tk = ImageTk.PhotoImage(resized)
 
-        # FORMULAS
+        container_x = w // 2
+        container_y = h // 2 + 30
+
+        self.canvas.create_image(
+            container_x,
+            container_y,
+            image=self.cpu_cont_tk,
+            tags="ui"
+        )
+
+        # dropdown 
+        algo_menu = tk.OptionMenu(
+            self,
+            self.selected_algo,
+            "FCFS",
+            "SJF",
+            "Priority"
+        )
+
+        self.canvas.create_window(
+            container_x - 440,
+            container_y + 220,
+            window=algo_menu
+        )
+        algo_menu.config( font=("Arial", 26))
+
+        # table manager
+        if self.cpu_table_manager is None:
+            self.cpu_table_manager = ProcessTableManager(
+                self.canvas,
+                self,
+                base_x=130,
+                base_y=170,
+                col_x=[40, 110, 200]
+            )
+
+        if len(self.cpu_table_manager.rows) == 0:
+            self.cpu_table_manager.add_row()
+
+        # start button
+        self.create_button("run_algo", "start_button", 0.15, 0.6, self.run_scheduler, scale=0.3)
+
+    # ---------------- ALGORITHM RUN ----------------
+    def run_scheduler(self):
+        self.canvas.delete("gantt")
+
+        if self.cpu_table_manager is None:
+            return
+
+        data = self.cpu_table_manager.get_data()
+        if not data:
+            return
+
+        algo = self.selected_algo.get()
+
+        try:
+            self.scheduler = scheduling_algorithm(data)
+
+            if algo == "FCFS":
+                self.result = self.scheduler.FCFS()
+            elif algo == "SJF":
+                self.result = self.scheduler.SJF()
+            elif algo == "Priority":
+                self.result = self.scheduler.NonPreemptivePriority()
+            else:
+                return
+
+        except Exception as e:
+            print("Scheduler error:", e)
+            return
+
+        processes = self.result.get("process", [])
+        avg_tat = self.result.get("avg_tat", 0)
+        avg_wt = self.result.get("avg_wt", 0)
+
+        w, h = 1420, 780
+        cx = w // 2
+        cy = h // 2 + 30
+
         self.canvas.create_text(
-            x, 120,
-            text="TAT = Completion Time - Arrival Time | WT = TAT - Burst Time",
+            cx + 200,
+            cy - 260,
+            text=f"AVG TAT: {avg_tat:.2f} | AVG WT: {avg_wt:.2f}",
             font=("Arial", 14),
-            fill="lightgray",
-            tags="ui"
-        )
-
-        # TABLE
-        table = "PROCESS   TAT   WT\n-------------------\n"
-        for i in range(len(result["process"])):
-            table += f"{result['process'][i]}     {result['tat'][i]}     {result['wt'][i]}\n"
-
-        self.canvas.create_text(
-            x, 250,
-            text=table,
-            font=("Courier", 14),
-            fill="white",
-            tags="ui"
-        )
-
-        # AVERAGES
-        avg = f"AVG TAT: {result['avg_tat']:.2f} ms | AVG WT: {result['avg_wt']:.2f} ms"
-
-        self.canvas.create_text(
-            x, 400,
-            text=avg,
-            font=("Arial", 16, "bold"),
             fill="yellow",
-            tags="ui"
+            tags="gantt"
         )
 
-        # GANTT CHART
-        start_x = 500
-        y = 200
+        # GANTT
+        x = cx - 200
+        y = cy - 220
 
-        for p in result["process"]:
+        for p in processes:
             self.canvas.create_rectangle(
-                start_x, y,
-                start_x + 80, y + 40,
+                x, y, x + 80, y + 40,
                 fill="white",
-                tags="ui"
+                tags="gantt"
             )
 
             self.canvas.create_text(
-                start_x + 40, y + 20,
+                x + 40, y + 20,
                 text=p,
                 fill="black",
-                tags="ui"
+                tags="gantt"
             )
 
-            start_x += 80
+            x += 80
 
 
 if __name__ == "__main__":
