@@ -186,7 +186,7 @@ class App(tk.Tk):
                 self.canvas,
                 self,
                 base_x=130,
-                base_y=170,
+                base_y=190,
                 col_x=[40, 110, 200]
             )
 
