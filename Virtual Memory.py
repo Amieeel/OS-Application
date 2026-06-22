@@ -94,53 +94,78 @@ class PageReplacement:
             self.frames.remove(victim)
             self.frames.append(page)
         return list(self.frames), True
-    
+ 
+
 class PageReplacementManager:
     def __init__(self, capacity, algorithm_type):
         self.capacity = capacity
-        self.type = algorithm_type # 'fifo', 'lru', 'clock', 'lfu', 'optimal'
-        self.visualizer = PageReplacement(capacity) 
+        self.algo = algorithm_type
+        self.visualizer = PageReplacement(capacity)
+        self.hits = 0
+        self.faults = 0
+        self.results = [] 
+
+    def run(self, pages, future_refs=None):
+        print(f"\n--- Running {self.algo.upper()} Simulation ---")
         
+        for i, page in enumerate(pages):
+            args = [page]
+            if self.algo == 'optimal':
+                args.append(future_refs[i+1:] if future_refs else [])
+            
+          
+            method = getattr(self.visualizer, self.algo)
+            frames, is_fault = method(*args)
+            
+          
+            status = "Fault" if is_fault else "Hit"
+            if is_fault:
+                self.faults += 1
+            else:
+                self.hits += 1
+                
+            self.results.append({'page': page, 'frames': list(frames), 'status': status})
+            print(f"Page: {page:2} | Frames: {str(frames):15} | Fault: {is_fault}")
+        
+        self.print_summary()
+
     def step(self, page, future_references=None):
-        if self.type == 'fifo':
-            return self.visualizer.fifo(page)
-        elif self.type == 'lru':
-            return self.visualizer.lru(page)
-        elif self.type == 'clock':
-            return self.visualizer.clock_algorithm(page)
-        elif self.type == 'lfu':
-            return self.visualizer.lfu(page)
-        elif self.type == 'optimal':
-            return self.visualizer.optimal(page, future_references)
+        method = getattr(self.visualizer, self.algo)
+        args = [page]
+        if self.algo == 'optimal': args.append(future_references)
         
+        frames, is_fault = method(*args)
+        
+        # Track stats
+        if is_fault: self.faults += 1
+        else: self.hits += 1
+        
+        self.results.append({'page': page, 'frames': list(frames), 'status': 'Fault' if is_fault else 'Hit'})
+        return frames, is_fault
+
+    def print_summary(self):
+        total = self.hits + self.faults
+        print("-" * 45)
+        print(f"Total Page Accesses: {total}")
+        print(f"Total Page Hits    : {self.hits}")
+        print(f"Total Page Faults  : {self.faults}")
+        print(f"Hit Ratio          : {(self.hits/total)*100:.2f}%")
 
 def main():
-    try:
-        capacity = int(input("Enter frame capacity: "))
-    except ValueError:
-        print("Capacity must be an integer.")
-        return
+    # 1. Setup
+    capacity = int(input("Enter frame capacity: "))
+    algo = input("Choose an algorithm (fifo, lru, clock, lfu, optimal): ").lower()
+    pages_input = input("Enter page references (e.g., 3,4,2,3): ")
+    pages = [int(p.strip()) for p in pages_input.split(',') if p.strip()]
 
-    print("Available algorithms: fifo, lru, clock, lfu, optimal")
-    algo = input("Choose an algorithm: ").lower()
-
-    pages_input = input("Enter page references (comma-separated, e.g., 7,0,1,2,0,3): ")
-    pages = [int(p.strip()) for p in pages_input.split(',')]
-
-    future_refs = None
-    if algo == 'optimal':
-        future_refs = pages 
+    # 2. Execution
     manager = PageReplacementManager(capacity, algo)
     
-    print(f"\n--- Running {algo.upper()} Simulation ---")
-    for i, page in enumerate(pages):
-        args = [page]
-        if algo == 'optimal':
-            args.append(pages[i+1:])
-            
-        frames, is_fault = manager.step(*args)
-        print(f"Page: {page:2} | Frames: {str(frames):15} | Fault: {is_fault}")
+    # CALL RUN() instead of a loop calling step()
+    manager.run(pages, future_refs=pages if algo == 'optimal' else None)
+    
+    # 3. Print Summary
+    print(f"\nSimulation Complete. Hits: {manager.hits}, Faults: {manager.faults}")
 
 if __name__ == "__main__":
     main()
-
