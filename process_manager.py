@@ -2,11 +2,12 @@ import tkinter as tk
 from tkinter import ttk
 
 class ProcessTableManager:
-    def __init__(self, main_canvas, parent, base_x, base_y, col_x):
+    def __init__(self, main_canvas, parent, base_x, base_y, col_x, headers=None):
         self.main_canvas = main_canvas
         self.parent = parent
         
         self.bg_color = "#193c54" 
+        self.headers = headers or ["Process", "Arrival", "Burst", "Priority"]
         
         self.container = tk.Frame(self.parent, bg=self.bg_color, bd=0)
 
@@ -45,8 +46,7 @@ class ProcessTableManager:
         self._lock = False
 
         # 4. Draw Headers using Grid Layout
-        headers = ["Process", "Arrival", "Burst", "Priority"]
-        for i, h in enumerate(headers):
+        for i, h in enumerate(self.headers):
             lbl = tk.Label(self.scrollable_frame, text=h, font=("Arial", 12, "bold"), bg=self.bg_color, fg="white")
             lbl.grid(row=0, column=i, padx=4, pady=4, sticky="w")
             self.scrollable_frame.grid_columnconfigure(i, minsize=70)

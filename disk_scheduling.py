@@ -162,13 +162,13 @@ def main():
     while True:
         run_simulation()
 
-        print("\n + "=" *50)
-        again = input("Do you want to run another simulation? (yes/no): ").strip()>lower()
+        print("\n" + "=" * 50)
+        again = input("Do you want to run another simulation? (yes/no): ").strip().lower()
 
         if again not in ("yes", "y"):
             print("\nThank you for using the Disk Scheduling Visualizer!")
             print("Goodbye!")
-            break 
+            break
         print("\n" + "=" * 50 + "\n")
 
 if __name__ == "__main__":
