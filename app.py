@@ -18,6 +18,37 @@ def load_virtual_memory_module():
     return vm
 
 
+def create_scrollable_text(parent, width=28, height=6, bg="#193c54", fg="white", font=("Arial", 10)):
+    """Create a Text widget with scrollbar for scrollable logs"""
+    frame = tk.Frame(parent, bg=bg)
+    
+    text_widget = tk.Text(
+        frame,
+        width=width,
+        height=height,
+        bg=bg,
+        fg=fg,
+        font=font,
+        bd=0,
+        highlightthickness=0,
+        wrap=tk.WORD
+    )
+    
+    scrollbar = tk.Scrollbar(frame, command=text_widget.yview, bg="#1a3a4a", troughcolor="#0a1a2a")
+    text_widget.config(yscrollcommand=scrollbar.set)
+    
+    text_widget.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    
+    # Bind mouse wheel for scrolling
+    def _on_mousewheel(event):
+        text_widget.yview_scroll(int(-1*(event.delta/120)), "units")
+    
+    text_widget.bind("<MouseWheel>", _on_mousewheel)
+    
+    return frame, text_widget
+
+
 class App(tk.Tk):
 
     def __init__(self):
@@ -35,6 +66,15 @@ class App(tk.Tk):
         self.canvas = tk.Canvas(self, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
+        # track embedded widgets so they can be destroyed when changing screens
+        self.ui_windows = []
+        self._orig_canvas_create_window = self.canvas.create_window
+        def _create_window(x, y, window=None, **kwargs):
+            if window is not None:
+                self.ui_windows.append(window)
+            return self._orig_canvas_create_window(x, y, window=window, **kwargs)
+        self.canvas.create_window = _create_window
+
         # background
         self.bg_id = None
         self.bg_tk = None
@@ -51,6 +91,8 @@ class App(tk.Tk):
         # FOR CPU SCHEDULING
         self.selected_algo = tk.StringVar(value="FCFS")
         self.cpu_table_manager = None
+        # memory table manager (like CPU)
+        self.memory_table_manager = None
 
         # FOR DISK SCHEDULING
         self.disk_size_var = tk.StringVar(value="200")
@@ -60,6 +102,7 @@ class App(tk.Tk):
         self.disk_total_var = tk.StringVar(value="Total Movement:\n")
         self.disk_sequence_var = tk.StringVar(value="Sequence:\n")
         self.disk_graph_canvas = None
+        self.disk_sequence_text = None  # For scrollable text widget
 
         # FOR MEMORY MANAGEMENT
         self.memory_total_mem_var = tk.StringVar(value="256")
@@ -81,6 +124,9 @@ class App(tk.Tk):
         self.memory_log_var = tk.StringVar(value="Logs:\n")
         self.memory_process_list_var = tk.StringVar(value="Processes:\n")
         self.memory_map_canvas = None
+        self.memory_sim_running = False
+        self.memory_step_btn = None
+        self.memory_log_text = None  # For scrollable text widget
         self.virtual_pages_var = tk.StringVar(value="7,0,1,2,0,3")
         self.virtual_capacity_var = tk.StringVar(value="3")
         self.virtual_algo_var = tk.StringVar(value="fifo")
@@ -88,7 +134,11 @@ class App(tk.Tk):
         self.virtual_faults_var = tk.StringVar(value="Faults: 0")
         self.virtual_sequence_var = tk.StringVar(value="Frames:\n")
         self.virtual_log_var = tk.StringVar(value="Logs:\n")
+        self.virtual_log_text = None  # For scrollable text widget
+        self.virtual_sequence_text = None  # For scrollable text widget
         self.virtual_module = load_virtual_memory_module()
+        # saved table data (persist across screen switches)
+        self._memory_table_saved_data = None
 
         self.set_background("home")
         self.create_main_menu()
@@ -116,6 +166,14 @@ class App(tk.Tk):
     def switch_screen(self, bg, builder):
         self.updating_ui = True
         self.clear_buttons()
+        # save memory table data if present so it can be restored
+        try:
+            if self.memory_table_manager is not None:
+                self._memory_table_saved_data = self.memory_table_manager.get_data()
+        except Exception:
+            self._memory_table_saved_data = None
+
+        self.clear_ui_windows()
         self.canvas.delete("ui")
 
         self.set_background(bg)
@@ -124,6 +182,14 @@ class App(tk.Tk):
         self.updating_ui = False
         self.render_buttons()
         self.after(1, self.render_buttons)
+
+    def clear_ui_windows(self):
+        for widget in self.ui_windows:
+            try:
+                widget.destroy()
+            except tk.TclError:
+                pass
+        self.ui_windows.clear()
 
     # ---------------- BUTTON SYSTEM ----------------
     def create_button(self, name, img_name, x, y, command, scale=1.0):
@@ -205,7 +271,7 @@ class App(tk.Tk):
 
     # ---------------- CPU VIEW ----------------
     def create_cpu_view(self):
-        w, h = 1420, 780
+        w, h = 1420, 770
 
         self.canvas.delete("ui")
 
@@ -227,7 +293,7 @@ class App(tk.Tk):
             tags="ui"
         )
 
-        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
 
         # dropdown 
         algo_menu = tk.OptionMenu(
@@ -287,13 +353,13 @@ class App(tk.Tk):
         entry_font = ("Arial", 12)
 
         disk_size_entry = tk.Entry(self, textvariable=self.disk_size_var, width=9, font=entry_font)
-        self.canvas.create_window(container_x - 480, container_y - 220, window=disk_size_entry, tags="ui")
+        self.canvas.create_window(container_x - 455, container_y - 220, window=disk_size_entry, tags="ui")
 
         head_entry = tk.Entry(self, textvariable=self.disk_head_var, width=9, font=entry_font)
-        self.canvas.create_window(container_x - 160, container_y - 220, window=head_entry, tags="ui")
+        self.canvas.create_window(container_x - 150, container_y - 220, window=head_entry, tags="ui")
 
         requests_entry = tk.Entry(self, textvariable=self.disk_requests_var, width=24, font=entry_font)
-        self.canvas.create_window(container_x + 170, container_y - 220, window=requests_entry, tags="ui")
+        self.canvas.create_window(container_x + 167, container_y - 220, window=requests_entry, tags="ui")
 
         algo_menu = tk.OptionMenu(
             self,
@@ -305,8 +371,8 @@ class App(tk.Tk):
             "LOOK",
             "C-LOOK"
         )
-        self.canvas.create_window(container_x + 480, container_y - 220, window=algo_menu, tags="ui")
-        algo_menu.config(font=("Arial", 14), width=10)
+        self.canvas.create_window(container_x + 465, container_y - 230, window=algo_menu, tags="ui")
+        algo_menu.config(font=("Arial", 14), width=7)
 
         total_frame = tk.Label(
             self,
@@ -319,35 +385,35 @@ class App(tk.Tk):
             height=6,
             bd=0
         )
-        self.canvas.create_window(container_x - 300, container_y + 10, window=total_frame, tags="ui")
+        self.canvas.create_window(container_x - 455, container_y - 60, window=total_frame, tags="ui")
 
-        sequence_frame = tk.Label(
+        # Create scrollable text widget for disk sequence
+        sequence_frame, self.disk_sequence_text = create_scrollable_text(
             self,
-            textvariable=self.disk_sequence_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 11),
-            justify="left",
             width=24,
             height=4,
-            bd=0
+            bg="#193c54",
+            fg="white",
+            font=("Arial", 11)
         )
-        self.canvas.create_window(container_x - 300, container_y + 150, window=sequence_frame, tags="ui")
+        self.disk_sequence_text.insert("1.0", "Sequence:\n")
+        self.disk_sequence_text.config(state="disabled")
+        self.canvas.create_window(container_x - 455, container_y + 185, window=sequence_frame, tags="ui")
 
         self.disk_graph_canvas = tk.Canvas(
             self,
-            width=560,
-            height=340,
+            width=850,
+            height=400,
             bg="#193c54",
             bd=0,
             highlightthickness=0
         )
-        self.canvas.create_window(container_x + 240, container_y + 30, window=self.disk_graph_canvas, tags="ui")
+        self.canvas.create_window(container_x + 155, container_y + 65, window=self.disk_graph_canvas, tags="ui")
 
-        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
 
         # run button
-        self.create_button("disk_run", "start_button", 0.15, 0.6, self.run_disk_scheduler, scale=0.3)
+        self.create_button("disk_run", "start_button", 0.134, 0.57, self.run_disk_scheduler, scale=0.3)
 
     # ---------------- MEMORY VIEW ----------------
     def create_memory_view(self):
@@ -372,28 +438,20 @@ class App(tk.Tk):
             tags="ui"
         )
 
-        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
 
         entry_font = ("Arial", 12)
 
         # System inputs
-        total_label = tk.Label(self, text="Total Mem", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 500, container_y - 240, window=total_label, tags="ui")
         total_entry = tk.Entry(self, textvariable=self.memory_total_mem_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x - 500, container_y - 210, window=total_entry, tags="ui")
+        self.canvas.create_window(container_x - 165, container_y - 145, window=total_entry, tags="ui")
 
-        os_label = tk.Label(self, text="OS Size", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 360, container_y - 240, window=os_label, tags="ui")
         os_entry = tk.Entry(self, textvariable=self.memory_os_size_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x - 360, container_y - 210, window=os_entry, tags="ui")
+        self.canvas.create_window(container_x + 50, container_y - 145, window=os_entry, tags="ui")
 
-        quantum_label = tk.Label(self, text="Quantum", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 220, container_y - 240, window=quantum_label, tags="ui")
         quantum_entry = tk.Entry(self, textvariable=self.memory_quantum_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x - 220, container_y - 210, window=quantum_entry, tags="ui")
+        self.canvas.create_window(container_x + 270, container_y - 145, window=quantum_entry, tags="ui")
 
-        policy_label = tk.Label(self, text="Policy", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 80, container_y - 240, window=policy_label, tags="ui")
         policy_menu = tk.OptionMenu(
             self,
             self.memory_policy_var,
@@ -402,85 +460,117 @@ class App(tk.Tk):
             "Worst Fit",
             "Next Fit"
         )
-        self.canvas.create_window(container_x - 80, container_y - 210, window=policy_menu, tags="ui")
-        policy_menu.config(font=("Arial", 12), width=10)
+        self.canvas.create_window(container_x + 490, container_y - 145, window=policy_menu, tags="ui")
+        policy_menu.config(font=("Arial", 11), width=8)
 
-        # Process inputs
-        pid_label = tk.Label(self, text="PID", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x + 170, container_y - 240, window=pid_label, tags="ui")
-        pid_entry = tk.Entry(self, textvariable=self.memory_pid_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x + 170, container_y - 210, window=pid_entry, tags="ui")
+        # Process table (re-uses ProcessTableManager from CPU view)
+        need_create = False
+        if self.memory_table_manager is None:
+            need_create = True
+        else:
+            try:
+                if not getattr(self.memory_table_manager, 'container', None) or not self.memory_table_manager.container.winfo_exists():
+                    need_create = True
+            except Exception:
+                need_create = True
 
-        arr_label = tk.Label(self, text="Arr", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x + 260, container_y - 240, window=arr_label, tags="ui")
-        arr_entry = tk.Entry(self, textvariable=self.memory_arr_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x + 260, container_y - 210, window=arr_entry, tags="ui")
+        if need_create:
+            self.memory_table_manager = ProcessTableManager(
+                self.canvas,
+                self,
+                base_x=130,
+                base_y=container_y - 155,
+                col_x=[40, 110, 200],
+                headers=["PID", "Arrival", "Burst", "Mem"],
+                win_height=250,
+            )
 
-        burst_label = tk.Label(self, text="Burst", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x + 350, container_y - 240, window=burst_label, tags="ui")
-        burst_entry = tk.Entry(self, textvariable=self.memory_burst_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x + 350, container_y - 210, window=burst_entry, tags="ui")
+            # restore saved data into the table if available
+            try:
+                saved = self._memory_table_saved_data or []
+                for i, row in enumerate(saved):
+                    # make sure enough rows exist
+                    while len(self.memory_table_manager.entries) <= i:
+                        self.memory_table_manager.add_row()
 
-        mem_label = tk.Label(self, text="Mem", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x + 440, container_y - 240, window=mem_label, tags="ui")
-        mem_entry = tk.Entry(self, textvariable=self.memory_mem_req_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x + 440, container_y - 210, window=mem_entry, tags="ui")
+                    arrival_entry, burst_entry, mem_entry = self.memory_table_manager.entries[i]
+                    # saved row format: [name, burst, arrival, extra]
+                    burst_val = str(row[1]) if len(row) > 1 and row[1] is not None else ""
+                    arrival_val = str(row[2]) if len(row) > 2 and row[2] is not None else ""
+                    mem_val = str(row[3]) if len(row) > 3 and row[3] is not None else ""
 
-        add_button = tk.Button(self, text="Add", command=self.memory_add_process, font=("Arial", 10), bg="#4caf50", fg="white")
-        self.canvas.create_window(container_x + 540, container_y - 210, window=add_button, tags="ui")
+                    arrival_entry.delete(0, tk.END)
+                    arrival_entry.insert(0, arrival_val)
+                    burst_entry.delete(0, tk.END)
+                    burst_entry.insert(0, burst_val)
+                    mem_entry.delete(0, tk.END)
+                    mem_entry.insert(0, mem_val)
+            except Exception:
+                pass
 
-        # Process list and metrics
-        process_frame = tk.Label(
-            self,
-            textvariable=self.memory_process_list_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 10),
-            justify="left",
-            width=28,
-            height=7,
-            bd=0
-        )
-        self.canvas.create_window(container_x - 300, container_y + 10, window=process_frame, tags="ui")
-
+        # Metrics and logs
         metrics_label = tk.Label(
             self,
             textvariable=self.memory_metrics_var,
             bg="#193c54",
             fg="white",
-            font=("Arial", 12),
-            justify="left",
-            width=28,
-            height=3,
-            bd=0
-        )
-        self.canvas.create_window(container_x - 300, container_y + 130, window=metrics_label, tags="ui")
-
-        log_label = tk.Label(
-            self,
-            textvariable=self.memory_log_var,
-            bg="#193c54",
-            fg="white",
             font=("Arial", 10),
             justify="left",
-            width=28,
-            height=6,
+            width=24,
+            height=2,
             bd=0
         )
-        self.canvas.create_window(container_x - 300, container_y + 240, window=log_label, tags="ui")
+        # position metrics under the Start button (shifted right/down)
+        self.canvas.create_window(container_x - 440, container_y + 200, window=metrics_label, tags="ui")
+
+        # Create scrollable log text widget for memory
+        log_frame, self.memory_log_text = create_scrollable_text(
+            self,
+            width=28,
+            height=21,
+            bg="#193c54",
+            fg="white",
+            font=("Arial", 10)
+        )
+        self.memory_log_text.insert("1.0", "Logs:\n")
+        self.memory_log_text.config(state="disabled")
+        self.canvas.create_window(container_x - 140, container_y + 75, window=log_frame, tags="ui")
 
         self.memory_map_canvas = tk.Canvas(
             self,
-            width=560,
-            height=340,
+            width=600,
+            height=350,
             bg="#193c54",
             bd=0,
             highlightthickness=0
         )
-        self.canvas.create_window(container_x + 240, container_y + 30, window=self.memory_map_canvas, tags="ui")
+        self.canvas.create_window(container_x + 275, container_y + 75, window=self.memory_map_canvas, tags="ui")
 
-        # run button
-        self.create_button("mem_run", "start_button", 0.15, 0.6, self.run_memory_scheduler, scale=0.3)
+        # Initialize and Step buttons
+        init_btn = tk.Button(
+            self,
+            text="Initialize",
+            command=self.init_memory_simulation,
+            font=("Arial", 11),
+            bg="#2a5a8a",
+            fg="white",
+            padx=15,
+            pady=5
+        )
+        self.canvas.create_window(container_x - 180, container_y + 320, window=init_btn, tags="ui")
+
+        self.memory_step_btn = tk.Button(
+            self,
+            text="Next Step (1ms)",
+            command=self.memory_step_simulation,
+            font=("Arial", 11),
+            bg="#2a5a8a",
+            fg="white",
+            padx=15,
+            pady=5,
+            state="disabled"
+        )
+        self.canvas.create_window(container_x, container_y + 320, window=self.memory_step_btn, tags="ui")
 
     def create_virtual_view(self):
         w, h = 1420, 780
@@ -504,7 +594,7 @@ class App(tk.Tk):
             tags="ui"
         )
 
-        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
 
         entry_font = ("Arial", 12)
 
@@ -600,8 +690,20 @@ class App(tk.Tk):
 
     def update_memory_process_list(self):
         lines = ["Processes:"]
-        for p in self.memory_processes:
-            lines.append(f"{p.pid}: A{p.arrival_time}, B{p.burst_time}, M{p.mem_req}")
+        # If a table manager exists, prefer its data
+        if self.memory_table_manager is not None:
+            table_data = self.memory_table_manager.get_data()
+            for row in table_data:
+                # row format from ProcessTableManager: [name, burst, arrival, extra]
+                name = row[0]
+                burst = row[1]
+                arrival = row[2]
+                mem = row[3] if len(row) > 3 and row[3] is not None else ""
+                lines.append(f"{name}: A{arrival}, B{burst}, M{mem}")
+        else:
+            for p in self.memory_processes:
+                lines.append(f"{p.pid}: A{p.arrival_time}, B{p.burst_time}, M{p.mem_req}")
+
         self.memory_process_list_var.set("\n".join(lines))
 
     def run_virtual_scheduler(self):
@@ -666,26 +768,66 @@ class App(tk.Tk):
                 font=("Arial", 16, "bold")
             )
 
-    def run_memory_scheduler(self):
+    def append_memory_log(self, message):
+        """Append a message to the memory log text widget"""
+        if self.memory_log_text:
+            self.memory_log_text.config(state="normal")
+            self.memory_log_text.insert("end", message + "\n")
+            self.memory_log_text.see("end")
+            self.memory_log_text.config(state="disabled")
+
+    def append_disk_log(self, message):
+        """Append a message to the disk sequence text widget"""
+        if self.disk_sequence_text:
+            self.disk_sequence_text.config(state="normal")
+            self.disk_sequence_text.insert("end", message + "\n")
+            self.disk_sequence_text.see("end")
+            self.disk_sequence_text.config(state="disabled")
+
+    def set_disk_log(self, message):
+        """Clear and set the disk sequence log"""
+        if self.disk_sequence_text:
+            self.disk_sequence_text.config(state="normal")
+            self.disk_sequence_text.delete("1.0", "end")
+            self.disk_sequence_text.insert("1.0", message + "\n")
+            self.disk_sequence_text.config(state="disabled")
+
+    def init_memory_simulation(self):
+        # Collect processes from the memory table if present
+        if self.memory_table_manager is not None:
+            table_data = self.memory_table_manager.get_data()
+            collected = []
+            for row in table_data:
+                # row: [name, burst, arrival, mem]
+                if len(row) >= 3:
+                    pid = row[0]
+                    burst = int(row[1])
+                    arrival = int(row[2])
+                    mem_req = int(row[3]) if len(row) > 3 and row[3] is not None else 0
+                    collected.append(MemProcess(pid, arrival, burst, mem_req))
+            self.memory_processes = collected
+
         if not self.memory_processes:
-            self.memory_log_var.set("Logs:\nAdd at least one process")
+            self.append_memory_log("Add at least one process")
             return
 
         try:
             total_mem = int(self.memory_total_mem_var.get())
             os_size = int(self.memory_os_size_var.get())
-            quantum = int(self.memory_quantum_var.get())
+            self.memory_quantum = int(self.memory_quantum_var.get())
         except ValueError:
-            self.memory_log_var.set("Logs:\nInvalid memory settings")
+            self.append_memory_log("Invalid memory settings")
             return
 
         self.memory_manager = MemMemoryManager(total_mem, os_size)
+        self.memory_strategy = self.memory_policy_var.get()
         self.memory_time = 0
         self.memory_completed_count = 0
         self.memory_quantum_tick = 0
         self.memory_input_queue = []
         self.memory_ready_queue = []
-        self.memory_log_var.set("Logs:\nSimulation started")
+        self.append_memory_log("Simulation initialized")
+        self.memory_sim_running = True
 
         for p in self.memory_processes:
             p.remaining_burst = p.burst_time
@@ -693,78 +835,130 @@ class App(tk.Tk):
             p.start_time = -1
             p.end_time = 0
 
-        strategy = self.memory_policy_var.get()
-
-        while self.memory_completed_count < len(self.memory_processes):
-            for p in self.memory_processes:
-                if p.arrival_time == self.memory_time and not p.in_memory and p.remaining_burst > 0:
-                    self.memory_input_queue.append(p)
-                    self.memory_log_var.set(self.memory_log_var.get() + f"\n[T={self.memory_time}] {p.pid} arrived")
-
-            loaded = True
-            while loaded and self.memory_input_queue:
-                loaded = False
-                for p in list(self.memory_input_queue):
-                    if self.memory_manager.allocate(p, strategy):
-                        self.memory_input_queue.remove(p)
-                        self.memory_ready_queue.append(p)
-                        self.memory_log_var.set(self.memory_log_var.get() + f"\n[T={self.memory_time}] {p.pid} loaded")
-                        loaded = True
-                        break
-
-            if self.memory_ready_queue:
-                curr = self.memory_ready_queue[0]
-                if curr.start_time == -1:
-                    curr.start_time = self.memory_time
-                curr.remaining_burst -= 1
-                self.memory_quantum_tick += 1
-
-                if curr.remaining_burst == 0:
-                    curr.end_time = self.memory_time + 1
-                    curr.waiting_time = curr.end_time - curr.arrival_time - curr.burst_time
-                    curr.turnaround_time = curr.end_time - curr.arrival_time
-                    self.memory_completed_count += 1
-                    self.memory_manager.deallocate(curr)
-                    self.memory_ready_queue.pop(0)
-                    self.memory_quantum_tick = 0
-                    self.memory_log_var.set(self.memory_log_var.get() + f"\n[T={self.memory_time+1}] {curr.pid} finished")
-                elif self.memory_quantum_tick == quantum:
-                    rotated = self.memory_ready_queue.pop(0)
-                    self.memory_ready_queue.append(rotated)
-                    self.memory_quantum_tick = 0
-                    self.memory_log_var.set(self.memory_log_var.get() + f"\n[T={self.memory_time+1}] Quantum expired for {rotated.pid}")
-
-            self.memory_time += 1
+        if self.memory_step_btn:
+            self.memory_step_btn.config(state="normal")
 
         self.update_memory_metrics()
         self.draw_memory_map()
-        self.memory_log_var.set(self.memory_log_var.get() + "\nSimulation complete")
+
+    def memory_step_simulation(self):
+        if not self.memory_sim_running or self.memory_completed_count >= len(self.memory_processes):
+            self.append_memory_log("--- SIMULATION COMPLETE ---")
+            self.memory_sim_running = False
+            if self.memory_step_btn:
+                self.memory_step_btn.config(state="disabled")
+            return
+
+        # 1. Check for new arrivals
+        for p in self.memory_processes:
+            if p.arrival_time == self.memory_time and p not in self.memory_input_queue and not p.in_memory and p.remaining_burst > 0:
+                self.memory_input_queue.append(p)
+                self.append_memory_log(f"[T={self.memory_time}] {p.pid} arrived. Added to Wait Queue.")
+
+        # 2. Memory Allocation
+        loaded = True
+        while loaded and self.memory_input_queue:
+            loaded = False
+            for p in list(self.memory_input_queue):
+                if self.memory_manager.allocate(p, self.memory_strategy):
+                    self.memory_input_queue.remove(p)
+                    self.memory_ready_queue.append(p)
+                    self.append_memory_log(f"[T={self.memory_time}] {p.pid} loaded into memory at {p.memory_start}K")
+                    loaded = True
+                    break
+
+        # 3. CPU Execution
+        if self.memory_ready_queue:
+            curr = self.memory_ready_queue[0]
+            if curr.start_time == -1:
+                curr.start_time = self.memory_time
+
+            # Execute for 1ms
+            curr.remaining_burst -= 1
+            self.memory_quantum_tick += 1
+
+            if curr.remaining_burst == 0:
+                curr.end_time = self.memory_time + 1
+                curr.turnaround_time = curr.end_time - curr.arrival_time
+                curr.waiting_time = curr.turnaround_time - curr.burst_time
+                self.memory_completed_count += 1
+                self.memory_manager.deallocate(curr)
+                self.memory_ready_queue.pop(0)
+                self.memory_quantum_tick = 0
+                self.append_memory_log(f"[T={self.memory_time+1}] {curr.pid} finished! Memory Released.")
+
+            elif self.memory_quantum_tick == self.memory_quantum:
+                # Time quantum expired, rotate queue
+                rotated = self.memory_ready_queue.pop(0)
+                self.memory_ready_queue.append(rotated)
+                self.memory_quantum_tick = 0
+                self.append_memory_log(f"[T={self.memory_time+1}] Quantum expired for {rotated.pid}. Context Switch.")
+
+        self.memory_time += 1
+        self.update_memory_metrics()
+        self.draw_memory_map()
 
     def update_memory_metrics(self):
         util, ext_frag, int_frag = self.memory_manager.get_metrics(self.memory_input_queue)
-        self.memory_metrics_var.set(f"Utilization: {util:.1f}% | Ext: {ext_frag}K | Int: {int_frag}K")
+        time_str = f"[T={self.memory_time}ms]"
+        self.memory_metrics_var.set(f"{time_str} | Utilization: {util:.1f}% | Ext: {ext_frag}K | Int: {int_frag}K")
 
     def draw_memory_map(self):
         if self.memory_map_canvas is None or self.memory_manager is None:
             return
 
         self.memory_map_canvas.delete("all")
-        tot = self.memory_manager.total_memory
+        
+        # Canvas dimensions
         width = int(self.memory_map_canvas["width"])
         height = int(self.memory_map_canvas["height"])
-        padding = 20
-
-        y_scale = (height - padding * 2) / tot
+        padding = 15
+        tot = self.memory_manager.total_memory
+        
+        # Calculate scale
+        y_scale = (height - padding * 2) / tot if tot > 0 else 1
         y_offset = padding
-
+        
+        # Draw OS section
+        os_h = max(10, self.memory_manager.os_size * y_scale)
+        self.memory_map_canvas.create_rectangle(
+            padding, y_offset, 
+            width - padding, y_offset + os_h, 
+            fill="#555555", 
+            outline="white",
+            width=2
+        )
+        self.memory_map_canvas.create_text(
+            width // 2, y_offset + os_h / 2, 
+            text=f"OS ({self.memory_manager.os_size}K)", 
+            fill="white",
+            font=("Arial", 9, "bold")
+        )
+        y_offset += os_h
+        
+        # Draw memory blocks
         for block in self.memory_manager.blocks:
-            block_height = max(10, block[1] * y_scale)
-            color = "#f0f0f0" if block[2] else "#88ccff"
-            self.memory_map_canvas.create_rectangle(padding, y_offset, width - padding, y_offset + block_height, fill=color, outline="white")
-            label = f"Free {block[1]}K" if block[2] else f"{block[3]} {block[1]}K"
-            self.memory_map_canvas.create_text(width // 2, y_offset + block_height / 2, text=label, fill="black", font=("Arial", 9))
-            y_offset += block_height
-        self.disk_graph_canvas.delete("all")
+            block_h = max(10, block[1] * y_scale)
+            color = "#f0f0f0" if block[2] else "#88ccff"  # Light gray for free, light blue for allocated
+            outline_color = "#999999" if block[2] else "#0066cc"
+            
+            self.memory_map_canvas.create_rectangle(
+                padding, y_offset,
+                width - padding, y_offset + block_h,
+                fill=color,
+                outline=outline_color,
+                width=2
+            )
+            
+            # Label
+            label = f"Free ({block[1]}K)" if block[2] else f"{block[3]} ({block[1]}K)"
+            self.memory_map_canvas.create_text(
+                width // 2, y_offset + block_h / 2,
+                text=label,
+                fill="black" if block[2] else "white",
+                font=("Arial", 8)
+            )
+            y_offset += block_h
 
         try:
             disk_size = int(self.disk_size_var.get())
@@ -780,7 +974,7 @@ class App(tk.Tk):
 
         except ValueError:
             self.disk_total_var.set("Invalid input.\nUse numbers only.")
-            self.disk_sequence_var.set("Sequence:\n")
+            self.set_disk_log("Sequence:")
             return
 
         algo = self.selected_disk_algo.get()
@@ -812,12 +1006,12 @@ class App(tk.Tk):
             requests = [int(x) for x in self.disk_requests_var.get().split() if x.strip() != ""]
         except ValueError:
             self.disk_total_var.set("Invalid input. Use numbers only.")
-            self.disk_sequence_var.set("Sequence:\n")
+            self.set_disk_log("Sequence:")
             return
 
         if disk_size <= 0 or head < 0 or head >= disk_size or any(r < 0 or r >= disk_size for r in requests):
             self.disk_total_var.set("Invalid input. Use numbers only.")
-            self.disk_sequence_var.set("Sequence:\n")
+            self.set_disk_log("Sequence:")
             return
 
         algo = self.selected_disk_algo.get()
@@ -837,9 +1031,9 @@ class App(tk.Tk):
             return
 
         self.disk_total_var.set(f"Total Movement:\n{total}")
-        self.disk_sequence_var.set("Sequence:\n" + " -> ".join(map(str, sequence)))
+        self.set_disk_log("Sequence:\n" + " -> ".join(map(str, sequence)))
+        
         self.draw_disk_graph(sequence, disk_size)
-
     def draw_disk_graph(self, sequence, disk_size):
         if self.disk_graph_canvas is None:
             return
