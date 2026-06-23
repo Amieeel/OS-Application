@@ -14,6 +14,15 @@ def get_images():
         "select": Image.open(os.path.join(assets_dir, "select.png")),
         "back_button": Image.open(os.path.join(assets_dir, "back_button.png")),
 
+        "learn": Image.open(os.path.join(assets_dir, "learn.png")),
+        "about": Image.open(os.path.join(assets_dir, "about.png")),
+        "learn-cont": Image.open(os.path.join(assets_dir, "learn_cont.png")),
+        "about_cont": Image.open(os.path.join(assets_dir, "about_cont.png")),
+        "CpuSched_MiniButton": Image.open(os.path.join(assets_dir, "CpuSched_MiniButton.png")),
+        "MainMem_Minibutton": Image.open(os.path.join(assets_dir, "MainMem_Minibutton.png")),
+        "Virtual_MiniButton": Image.open(os.path.join(assets_dir, "Virtual_MiniButton.png")),
+        "Disk_MiniButton": Image.open(os.path.join(assets_dir, "Disk_MiniButton.png")),
+
         "round_bb": Image.open(os.path.join(assets_dir, "round_back_button.png")),
         # --- CPU SCHEDULING VISUALIZATION ASSETS ---
         "CPU_sched_button": Image.open(os.path.join(assets_dir, "CPU_sched_button.png")),
