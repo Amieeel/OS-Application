@@ -1,14 +1,22 @@
 import tkinter as tk
 from tkinter import ttk
 
+FONT_FAMILY = "Segoe UI"
+FONT_SEMIBOLD = "Segoe UI Semibold"
+PANEL_BG_DARK = "#193c54"
+TEXT_PRIMARY = "#f6fbff"
+INK = "#0a2a3c"
+ACCENT = "#f4d35e"
+
+
 class ProcessTableManager:
     def __init__(self, main_canvas, parent, base_x, base_y, col_x, headers=None, win_width=285, win_height=270, canvas_width=260):
         self.main_canvas = main_canvas
         self.parent = parent
-        
-        self.bg_color = "#193c54" 
+
+        self.bg_color = PANEL_BG_DARK
         self.headers = headers or ["Process", "Arrival", "Burst", "Priority"]
-        
+
         self.container = tk.Frame(self.parent, bg=self.bg_color, bd=0)
 
         self.win_width = win_width
@@ -27,22 +35,22 @@ class ProcessTableManager:
         self.canvas = tk.Canvas(self.container, bg=self.bg_color, bd=0, highlightthickness=0, width=self.canvas_width)
         self.scrollbar = ttk.Scrollbar(self.container, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = tk.Frame(self.canvas, bg=self.bg_color)
-        
+
         self.scrollable_frame.bind(
             "<Configure>",
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
-        
+
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=270)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        
+
         # FIX 2: Pack the scrollbar FIRST so it claims the right edge, THEN pack the canvas
         self.scrollbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
-        
+
         self.canvas.bind("<Enter>", self._bound_to_mousewheel)
         self.canvas.bind("<Leave>", self._unbound_to_mousewheel)
-        
+
         self.rows = []
         self.entries = []
         self.process_count = 0
@@ -51,7 +59,7 @@ class ProcessTableManager:
 
         # 4. Draw Headers using Grid Layout
         for i, h in enumerate(self.headers):
-            lbl = tk.Label(self.scrollable_frame, text=h, font=("Arial", 12, "bold"), bg=self.bg_color, fg="white")
+            lbl = tk.Label(self.scrollable_frame, text=h, font=(FONT_SEMIBOLD, 11), bg=self.bg_color, fg=TEXT_PRIMARY)
             lbl.grid(row=0, column=i, padx=4, pady=4, sticky="w")
             self.scrollable_frame.grid_columnconfigure(i, minsize=70)
         self.scrollable_frame.grid_columnconfigure(0, minsize=40)
@@ -82,7 +90,7 @@ class ProcessTableManager:
         row_index = self.process_count
         self.process_count += 1
         process_name = f"P{row_index + 1}"
-        
+
         grid_row = row_index + 1  # Offset by 1 because row 0 is headers
 
         # Process Label
@@ -91,17 +99,30 @@ class ProcessTableManager:
             text=process_name,
             width=2,
             anchor="w",
-            font=("Arial", 11, "bold"),
+            font=("Segoe UI", 11, "bold"),
             bg=self.bg_color,
-            fg="white"
+            fg=TEXT_PRIMARY
         )
         lbl.grid(row=grid_row, column=0, padx=4, pady=4)
 
         vcmd = (self.parent.register(self.validate_number), "%P")
 
-        arrival = tk.Entry(self.scrollable_frame, width=5, font=("Arial", 11), validate="key", validatecommand=vcmd)
-        burst = tk.Entry(self.scrollable_frame, width=5, font=("Arial", 11), validate="key", validatecommand=vcmd)
-        priority = tk.Entry(self.scrollable_frame, width=5, font=("Arial", 11), validate="key", validatecommand=vcmd)
+        arrival = tk.Entry(self.scrollable_frame, width=5, font=(FONT_FAMILY, 11), validate="key", validatecommand=vcmd)
+        burst = tk.Entry(self.scrollable_frame, width=5, font=(FONT_FAMILY, 11), validate="key", validatecommand=vcmd)
+        priority = tk.Entry(self.scrollable_frame, width=5, font=(FONT_FAMILY, 11), validate="key", validatecommand=vcmd)
+
+        for entry in (arrival, burst, priority):
+            entry.config(
+                bg="#edf7fb",
+                fg=INK,
+                insertbackground=INK,
+                relief="flat",
+                bd=0,
+                highlightthickness=1,
+                highlightbackground="#5f93aa",
+                highlightcolor=ACCENT,
+                justify="center"
+            )
 
         # Place inputs in grid
         arrival.grid(row=grid_row, column=1, padx=4, pady=4, sticky="w")
@@ -121,7 +142,7 @@ class ProcessTableManager:
             return
 
         last_arrival, last_burst, last_priority = self.entries[-1]
-        
+
         # If the user starts typing in the latest row, generate the next one
         if last_arrival.get().strip() != "" or last_burst.get().strip() != "":
             if len(self.rows) < self.max_rows:
@@ -141,9 +162,8 @@ class ProcessTableManager:
                 data.append([name, int(b), int(a), priority_val])
 
         return data
-    
+
     def redraw(self):
-        # Left empty intentionally. 
+        # Left empty intentionally.
         # With the grid+frame system, Tkinter handles the redrawing automatically!
         pass
-    
