@@ -127,16 +127,27 @@ class App(tk.Tk):
         self.memory_sim_running = False
         self.memory_step_btn = None
         self.memory_log_text = None  # For scrollable text widget
+
+        # FOR VIRTUAL MEMORY
         self.virtual_pages_var = tk.StringVar(value="7,0,1,2,0,3")
         self.virtual_capacity_var = tk.StringVar(value="3")
-        self.virtual_algo_var = tk.StringVar(value="fifo")
+        self.virtual_algo_var = tk.StringVar(value="FIFO")
+        self.virtual_faults_var = tk.StringVar(value="0")
+        self.virtual_hits_var = tk.StringVar(value="0")
+        
         self.virtual_frames_canvas = None
-        self.virtual_faults_var = tk.StringVar(value="Faults: 0")
-        self.virtual_sequence_var = tk.StringVar(value="Frames:\n")
-        self.virtual_log_var = tk.StringVar(value="Logs:\n")
-        self.virtual_log_text = None  # For scrollable text widget
-        self.virtual_sequence_text = None  # For scrollable text widget
+        self.virtual_log_text = None
+        self.virtual_sequence_text = None
+        self.virtual_step_btn = None
+        
+        self.virtual_manager = None
+        self.virtual_pages_list = []
+        self.virtual_current_step = 0
+        self.virtual_faults = 0
+        self.virtual_hits = 0
+
         self.virtual_module = load_virtual_memory_module()
+        
         # saved table data (persist across screen switches)
         self._memory_table_saved_data = None
 
@@ -572,105 +583,68 @@ class App(tk.Tk):
         )
         self.canvas.create_window(container_x, container_y + 320, window=self.memory_step_btn, tags="ui")
 
+    # ---------------- VIRTUAL VIEW ----------------
     def create_virtual_view(self):
         w, h = 1420, 780
-
         self.canvas.delete("ui")
 
+        # Background Configuration
         cont_img = self.imgs["virt_cont"]
         cont_w = int(w * 0.9)
         cont_h = int(h * 0.75)
-
         resized = cont_img.resize((cont_w, cont_h), Image.Resampling.LANCZOS)
         self.virtual_cont_tk = ImageTk.PhotoImage(resized)
 
         container_x = w // 2
         container_y = h // 2 + 30
-
-        self.canvas.create_image(
-            container_x,
-            container_y,
-            image=self.virtual_cont_tk,
-            tags="ui"
-        )
-
+        self.canvas.create_image(container_x, container_y, image=self.virtual_cont_tk, tags="ui")
         self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
 
-        entry_font = ("Arial", 12)
+        # 1. Reference String Entry (Top Left Box)
+        pages_entry = tk.Entry(self, textvariable=self.virtual_pages_var, width=18, font=("Arial", 16), justify="center")
+        self.canvas.create_window(container_x - 390, container_y - 170, window=pages_entry, tags="ui")
 
-        pages_label = tk.Label(self, text="Pages", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 500, container_y - 240, window=pages_label, tags="ui")
-        pages_entry = tk.Entry(self, textvariable=self.virtual_pages_var, width=24, font=entry_font)
-        self.canvas.create_window(container_x - 500, container_y - 210, window=pages_entry, tags="ui")
+        # 2. Frames Label & Input (Below Reference String)
+        frames_frame = tk.Frame(self, bg="#193c54")
+        tk.Label(frames_frame, text="Frames:", font=("Arial", 14), bg="#193c54", fg="white").pack(side="left")
+        tk.Entry(frames_frame, textvariable=self.virtual_capacity_var, width=5, font=("Arial", 14), justify="center").pack(side="left", padx=5)
+        self.canvas.create_window(container_x - 390, container_y - 100, window=frames_frame, tags="ui")
 
-        capacity_label = tk.Label(self, text="Frames", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 240, container_y - 240, window=capacity_label, tags="ui")
-        capacity_entry = tk.Entry(self, textvariable=self.virtual_capacity_var, width=6, font=entry_font)
-        self.canvas.create_window(container_x - 240, container_y - 210, window=capacity_entry, tags="ui")
+        # 3. Page Fault Count Box (Top Middle-Left)
+        faults_label = tk.Label(self, textvariable=self.virtual_faults_var, font=("Arial", 24, "bold"), bg="#193c54", fg="white")
+        self.canvas.create_window(container_x - 110, container_y - 170, window=faults_label, tags="ui")
 
-        algo_label = tk.Label(self, text="Algorithm", font=("Arial", 10), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x + 40, container_y - 240, window=algo_label, tags="ui")
-        algo_menu = tk.OptionMenu(
-            self,
-            self.virtual_algo_var,
-            "fifo",
-            "lru",
-            "optimal",
-            "lfu"
-        )
-        self.canvas.create_window(container_x + 40, container_y - 210, window=algo_menu, tags="ui")
-        algo_menu.config(font=("Arial", 12), width=10)
+        # 4. Page Hit Count Box (Top Middle-Right)
+        hits_label = tk.Label(self, textvariable=self.virtual_hits_var, font=("Arial", 24, "bold"), bg="#193c54", fg="white")
+        self.canvas.create_window(container_x + 165, container_y - 170, window=hits_label, tags="ui")
 
-        self.virtual_frames_canvas = tk.Canvas(
-            self,
-            width=560,
-            height=340,
-            bg="#193c54",
-            bd=0,
-            highlightthickness=0
-        )
-        self.canvas.create_window(container_x + 240, container_y + 30, window=self.virtual_frames_canvas, tags="ui")
+        # 5. Algorithm Option Menu (Top Right Box)
+        self.virtual_algo_var.set(self.virtual_algo_var.get().upper())
+        algo_menu = tk.OptionMenu(self, self.virtual_algo_var, "FIFO", "LRU", "OPTIMAL", "LFU")
+        algo_menu.config(font=("Arial", 14), width=8)
+        self.canvas.create_window(container_x + 440, container_y - 170, window=algo_menu, tags="ui")
 
-        frames_label = tk.Label(
-            self,
-            textvariable=self.virtual_sequence_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 11),
-            justify="left",
-            width=28,
-            height=8,
-            bd=0
-        )
-        self.canvas.create_window(container_x - 300, container_y + 20, window=frames_label, tags="ui")
+        # Initialize & Next Step Buttons
+        btn_frame = tk.Frame(self, bg="#193c54")
+        tk.Button(btn_frame, text="Initialize", command=self.init_virtual_simulation, font=("Arial", 11, "bold"), bg="#2a5a8a", fg="white", padx=10, pady=5).pack(side="left", padx=5)
+        self.virtual_step_btn = tk.Button(btn_frame, text="Next Step", command=self.virtual_step_simulation, font=("Arial", 11, "bold"), bg="#2a5a8a", fg="white", padx=10, pady=5, state="disabled")
+        self.virtual_step_btn.pack(side="left", padx=5)
+        self.canvas.create_window(container_x - 390, container_y - 40, window=btn_frame, tags="ui")
 
-        faults_label = tk.Label(
-            self,
-            textvariable=self.virtual_faults_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 14),
-            justify="left",
-            width=18,
-            height=2,
-            bd=0
-        )
-        self.canvas.create_window(container_x - 300, container_y + 170, window=faults_label, tags="ui")
+        # Left Side Big Box: Scrollable Text for Frames and General Logs
+        frames_log_frame, self.virtual_sequence_text = create_scrollable_text(self, width=28, height=8, bg="#193c54", fg="white", font=("Arial", 11))
+        self.virtual_sequence_text.insert("1.0", "Frames:\n")
+        self.virtual_sequence_text.config(state="disabled")
+        self.canvas.create_window(container_x - 390, container_y + 80, window=frames_log_frame, tags="ui")
 
-        log_label = tk.Label(
-            self,
-            textvariable=self.virtual_log_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 10),
-            justify="left",
-            width=28,
-            height=6,
-            bd=0
-        )
-        self.canvas.create_window(container_x - 300, container_y + 260, window=log_label, tags="ui")
+        logs_frame, self.virtual_log_text = create_scrollable_text(self, width=28, height=8, bg="#193c54", fg="white", font=("Arial", 11))
+        self.virtual_log_text.insert("1.0", "Logs:\n")
+        self.virtual_log_text.config(state="disabled")
+        self.canvas.create_window(container_x - 390, container_y + 230, window=logs_frame, tags="ui")
 
-        self.create_button("virt_run", "start_button", 0.15, 0.6, self.run_virtual_scheduler, scale=0.3)
+        # Right Side Big Box: Canvas for Frame Visuals
+        self.virtual_frames_canvas = tk.Canvas(self, width=700, height=360, bg="#193c54", bd=0, highlightthickness=0)
+        self.canvas.create_window(container_x + 180, container_y + 130, window=self.virtual_frames_canvas, tags="ui")
 
     def memory_add_process(self):
         try:
@@ -706,41 +680,109 @@ class App(tk.Tk):
 
         self.memory_process_list_var.set("\n".join(lines))
 
-    def run_virtual_scheduler(self):
+    # --- Virtual Memory Log Helpers ---
+    def append_virtual_log(self, message):
+        if self.virtual_log_text:
+            self.virtual_log_text.config(state="normal")
+            self.virtual_log_text.insert("end", message + "\n")
+            self.virtual_log_text.see("end")
+            self.virtual_log_text.config(state="disabled")
+
+    def append_virtual_sequence(self, message):
+        if self.virtual_sequence_text:
+            self.virtual_sequence_text.config(state="normal")
+            self.virtual_sequence_text.insert("end", message + "\n")
+            self.virtual_sequence_text.see("end")
+            self.virtual_sequence_text.config(state="disabled")
+
+    def clear_virtual_logs(self):
+        if self.virtual_log_text:
+            self.virtual_log_text.config(state="normal")
+            self.virtual_log_text.delete("1.0", "end")
+            self.virtual_log_text.insert("1.0", "Logs:\n")
+            self.virtual_log_text.config(state="disabled")
+        if self.virtual_sequence_text:
+            self.virtual_sequence_text.config(state="normal")
+            self.virtual_sequence_text.delete("1.0", "end")
+            self.virtual_sequence_text.insert("1.0", "Frames:\n")
+            self.virtual_sequence_text.config(state="disabled")
+
+    # --- Virtual Memory Step-by-Step Logic ---
+    def init_virtual_simulation(self):
         try:
-            pages = [int(x.strip()) for x in self.virtual_pages_var.get().split(",") if x.strip() != ""]
+            raw_pages = self.virtual_pages_var.get()
+            self.virtual_pages_list = [int(x.strip()) for x in raw_pages.split(",") if x.strip() != ""]
             capacity = int(self.virtual_capacity_var.get())
             algo = self.virtual_algo_var.get().lower()
         except ValueError:
-            self.virtual_log_var.set("Logs:\nInvalid page or capacity values")
+            self.append_virtual_log("Error: Invalid reference string or capacity.")
             return
 
-        if capacity <= 0 or not pages:
-            self.virtual_log_var.set("Logs:\nEnter valid frames and page list")
+        if capacity <= 0 or not self.virtual_pages_list:
+            self.append_virtual_log("Error: Capacity > 0 and Reference String required.")
             return
 
-        manager = self.virtual_module.PageReplacementManager(capacity, algo)
-        faults = 0
-        sequence_lines = []
-        current_frames = []
+        # Initialize manager
+        self.virtual_manager = self.virtual_module.PageReplacementManager(capacity, algo)
+        self.virtual_current_step = 0
+        self.virtual_faults = 0
+        self.virtual_hits = 0
 
-        for i, page in enumerate(pages):
-            if algo == "optimal":
-                future_refs = pages[i+1:]
-                frames, is_fault = manager.step(page, future_refs)
-            else:
-                frames, is_fault = manager.step(page)
+        # Reset counts UI
+        self.virtual_faults_var.set("0")
+        self.virtual_hits_var.set("0")
+        
+        # Clear logs and canvas
+        self.clear_virtual_logs()
+        if self.virtual_frames_canvas:
+            self.virtual_frames_canvas.delete("all")
 
-            current_frames = frames
-            if is_fault:
-                faults += 1
+        self.append_virtual_log(f"Simulation initialized with {algo.upper()} algorithm.")
+        
+        # Enable Step button
+        if hasattr(self, 'virtual_step_btn') and self.virtual_step_btn:
+            self.virtual_step_btn.config(state="normal")
 
-            sequence_lines.append(f"P{page}: {frames} | Fault: {'Y' if is_fault else 'N'}")
+    def virtual_step_simulation(self):
+        if not self.virtual_manager or self.virtual_current_step >= len(self.virtual_pages_list):
+            self.append_virtual_log("--- SIMULATION COMPLETE ---")
+            if hasattr(self, 'virtual_step_btn') and self.virtual_step_btn:
+                self.virtual_step_btn.config(state="disabled")
+            return
 
-        self.virtual_sequence_var.set("Frames:\n" + "\n".join(sequence_lines[-8:]))
-        self.virtual_faults_var.set(f"Faults: {faults}")
-        self.virtual_log_var.set("Logs:\nSimulation complete")
-        self.draw_virtual_frames(current_frames)
+        page = self.virtual_pages_list[self.virtual_current_step]
+        algo = self.virtual_algo_var.get().lower()
+
+        # Execute single step
+        if algo == "optimal":
+            future_refs = self.virtual_pages_list[self.virtual_current_step + 1:]
+            frames, is_fault = self.virtual_manager.step(page, future_refs)
+        else:
+            frames, is_fault = self.virtual_manager.step(page)
+
+        # Update metrics and variables
+        if is_fault:
+            self.virtual_faults += 1
+            status = "FAULT (Y)"
+        else:
+            self.virtual_hits += 1
+            status = "HIT (N)"
+
+        self.virtual_faults_var.set(str(self.virtual_faults))
+        self.virtual_hits_var.set(str(self.virtual_hits))
+
+        # Output to scroll logs
+        self.append_virtual_sequence(f"P{page}: {frames} | {status}")
+        self.append_virtual_log(f"Step {self.virtual_current_step + 1}: Page {page} requested -> {status}")
+
+        # Visuals
+        self.draw_virtual_frames(frames)
+        self.virtual_current_step += 1
+        
+        if self.virtual_current_step >= len(self.virtual_pages_list):
+            self.append_virtual_log("--- SIMULATION COMPLETE ---")
+            if hasattr(self, 'virtual_step_btn') and self.virtual_step_btn:
+                self.virtual_step_btn.config(state="disabled")
 
     def draw_virtual_frames(self, frames):
         if self.virtual_frames_canvas is None:
@@ -1034,6 +1076,7 @@ class App(tk.Tk):
         self.set_disk_log("Sequence:\n" + " -> ".join(map(str, sequence)))
         
         self.draw_disk_graph(sequence, disk_size)
+        
     def draw_disk_graph(self, sequence, disk_size):
         if self.disk_graph_canvas is None:
             return
