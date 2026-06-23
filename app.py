@@ -5,8 +5,21 @@ from cpuschedulingv2 import scheduling_algorithm
 import disk_scheduling
 import importlib.util
 import os
+import re
 from Memory_Management import Process as MemProcess, MemoryManager as MemMemoryManager
 from process_manager import ProcessTableManager
+
+
+FONT_FAMILY = "Segoe UI"
+FONT_SEMIBOLD = "Segoe UI Semibold"
+PANEL_BG = "#315d75"
+PANEL_BG_DARK = "#193c54"
+TEXT_PRIMARY = "#f6fbff"
+TEXT_MUTED = "#c9dde8"
+INK = "#0a2a3c"
+ACCENT = "#f4d35e"
+BUTTON_BG = "#23607f"
+BUTTON_ACTIVE_BG = "#347d9e"
 
 
 def load_virtual_memory_module():
@@ -18,10 +31,10 @@ def load_virtual_memory_module():
     return vm
 
 
-def create_scrollable_text(parent, width=28, height=6, bg="#193c54", fg="white", font=("Arial", 10)):
+def create_scrollable_text(parent, width=28, height=6, bg=PANEL_BG_DARK, fg=TEXT_PRIMARY, font=(FONT_FAMILY, 10)):
     """Create a Text widget with scrollbar for scrollable logs"""
     frame = tk.Frame(parent, bg=bg)
-    
+
     text_widget = tk.Text(
         frame,
         width=width,
@@ -31,21 +44,25 @@ def create_scrollable_text(parent, width=28, height=6, bg="#193c54", fg="white",
         font=font,
         bd=0,
         highlightthickness=0,
-        wrap=tk.WORD
+        wrap=tk.WORD,
+        insertbackground=fg,
+        selectbackground=BUTTON_ACTIVE_BG,
+        padx=8,
+        pady=6
     )
-    
+
     scrollbar = tk.Scrollbar(frame, command=text_widget.yview, bg="#1a3a4a", troughcolor="#0a1a2a")
     text_widget.config(yscrollcommand=scrollbar.set)
-    
+
     text_widget.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
-    
+
     # Bind mouse wheel for scrolling
     def _on_mousewheel(event):
         text_widget.yview_scroll(int(-1*(event.delta/120)), "units")
-    
+
     text_widget.bind("<MouseWheel>", _on_mousewheel)
-    
+
     return frame, text_widget
 
 
@@ -58,6 +75,7 @@ class App(tk.Tk):
         self.title("Go Rhythm")
         self.geometry("1420x780")
         self.resizable(False, False)
+        self.configure_base_style()
 
         # assets
         self.imgs = get_images()
@@ -68,11 +86,14 @@ class App(tk.Tk):
 
         # track embedded widgets so they can be destroyed when changing screens
         self.ui_windows = []
+        self.ui_window_ids = []
         self._orig_canvas_create_window = self.canvas.create_window
         def _create_window(x, y, window=None, **kwargs):
+            item_id = self._orig_canvas_create_window(x, y, window=window, **kwargs)
             if window is not None:
                 self.ui_windows.append(window)
-            return self._orig_canvas_create_window(x, y, window=window, **kwargs)
+                self.ui_window_ids.append(item_id)
+            return item_id
         self.canvas.create_window = _create_window
 
         # background
@@ -90,6 +111,7 @@ class App(tk.Tk):
 
         # FOR CPU SCHEDULING
         self.selected_algo = tk.StringVar(value="FCFS")
+        self.cpu_quantum_var = tk.StringVar(value="2")
         self.cpu_table_manager = None
         # memory table manager (like CPU)
         self.memory_table_manager = None
@@ -134,26 +156,94 @@ class App(tk.Tk):
         self.virtual_algo_var = tk.StringVar(value="FIFO")
         self.virtual_faults_var = tk.StringVar(value="0")
         self.virtual_hits_var = tk.StringVar(value="0")
-        
+
         self.virtual_frames_canvas = None
         self.virtual_log_text = None
         self.virtual_sequence_text = None
         self.virtual_step_btn = None
-        
+        self.virtual_run_btn = None
+        self.virtual_faults_text_id = None
+        self.virtual_hits_text_id = None
+
         self.virtual_manager = None
         self.virtual_pages_list = []
+        self.virtual_history = []
         self.virtual_current_step = 0
         self.virtual_faults = 0
         self.virtual_hits = 0
 
         self.virtual_module = load_virtual_memory_module()
-        
+
         # saved table data (persist across screen switches)
+        self._cpu_table_saved_data = None
         self._memory_table_saved_data = None
 
         self.set_background("home")
         self.create_main_menu()
         self.render_buttons()
+
+    def configure_base_style(self):
+        self.option_add("*Font", f"{{{FONT_FAMILY}}} 10")
+        self.option_add("*Menu.font", f"{{{FONT_FAMILY}}} 10")
+        self.option_add("*Entry.relief", "flat")
+        self.option_add("*Entry.borderWidth", 0)
+        self.option_add("*Button.relief", "flat")
+        self.option_add("*Button.borderWidth", 0)
+
+    def style_entry(self, entry):
+        entry.config(
+            bg="#edf7fb",
+            fg=INK,
+            insertbackground=INK,
+            relief="flat",
+            bd=0,
+            highlightthickness=2,
+            highlightbackground="#5f93aa",
+            highlightcolor=ACCENT,
+        )
+
+    def style_panel_button(self, button):
+        button.config(
+            font=(FONT_SEMIBOLD, 10),
+            bg=BUTTON_BG,
+            fg=TEXT_PRIMARY,
+            activebackground=BUTTON_ACTIVE_BG,
+            activeforeground=TEXT_PRIMARY,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+
+    def create_panel_button(self, parent, text, command, state="normal", padx=10, pady=3):
+        button = tk.Button(parent, text=text, command=command, padx=padx, pady=pady, state=state)
+        self.style_panel_button(button)
+        return button
+
+    def style_option_menu(self, menu, width):
+        menu.config(
+            font=(FONT_SEMIBOLD, 11),
+            width=width,
+            bg="#edf7fb",
+            fg=INK,
+            activebackground="#d6eef6",
+            activeforeground=INK,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        try:
+            menu["menu"].config(
+                font=(FONT_FAMILY, 10),
+                bg="#edf7fb",
+                fg=INK,
+                activebackground="#d6eef6",
+                activeforeground=INK,
+                bd=0,
+            )
+        except tk.TclError:
+            pass
 
     # ---------------- BACKGROUND ----------------
     def set_background(self, name):
@@ -177,6 +267,12 @@ class App(tk.Tk):
     def switch_screen(self, bg, builder):
         self.updating_ui = True
         self.clear_buttons()
+        try:
+            if self.cpu_table_manager is not None:
+                self._cpu_table_saved_data = self.cpu_table_manager.get_data()
+        except Exception:
+            self._cpu_table_saved_data = None
+
         # save memory table data if present so it can be restored
         try:
             if self.memory_table_manager is not None:
@@ -185,7 +281,9 @@ class App(tk.Tk):
             self._memory_table_saved_data = None
 
         self.clear_ui_windows()
+        self.cpu_table_manager = None
         self.canvas.delete("ui")
+        self.canvas.delete("gantt")
 
         self.set_background(bg)
         builder()
@@ -201,6 +299,13 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         self.ui_windows.clear()
+
+        for item_id in self.ui_window_ids:
+            try:
+                self.canvas.delete(item_id)
+            except tk.TclError:
+                pass
+        self.ui_window_ids.clear()
 
     # ---------------- BUTTON SYSTEM ----------------
     def create_button(self, name, img_name, x, y, command, scale=1.0):
@@ -268,17 +373,17 @@ class App(tk.Tk):
         self.switch_screen("virtual_bg", self.create_virtual_view)
 
     # ---------------- MENUS ----------------
-    def create_main_menu(self): 
-        self.create_button("start", "start_button", 0.4, 0.45, self.on_start, scale=0.65) 
-        self.create_button("learn", "learn_button", 0.41, 0.59, lambda: None, scale=0.6) 
-        self.create_button("about", "about_button", 0.41, 0.69, lambda: None, scale=0.6) 
-        
-    def create_select_menu(self): 
-        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6) 
-        self.create_button("CPU", "CPU_sched_button", 0.05, 0.25, self.on_CPU, scale=0.8)
-        self.create_button("DISK", "Disk_sched_button", 0.27, 0.25, self.on_disk, scale=0.8)
-        self.create_button("MEM", "Main_mem_button", 0.49, 0.25, self.on_memory, scale=0.8)
-        self.create_button("VIRT", "Virt_mem_button", 0.71, 0.25, self.on_virtual, scale=0.8)
+    def create_main_menu(self):
+        self.create_button("start", "start_button", 0.4, 0.45, self.on_start, scale=0.65)
+        self.create_button("learn", "learn_button", 0.41, 0.59, lambda: None, scale=0.6)
+        self.create_button("about", "about_button", 0.41, 0.69, lambda: None, scale=0.6)
+
+    def create_select_menu(self):
+        self.create_button("back", "back_button", 0.03, 0.11, self.on_back, scale=0.6)
+        self.create_button("CPU", "CPU_sched_button", 0.065, 0.27, self.on_CPU, scale=0.72)
+        self.create_button("DISK", "Disk_sched_button", 0.285, 0.27, self.on_disk, scale=0.72)
+        self.create_button("MEM", "Main_mem_button", 0.505, 0.27, self.on_memory, scale=0.72)
+        self.create_button("VIRT", "Virt_mem_button", 0.725, 0.27, self.on_virtual, scale=0.72)
 
     # ---------------- CPU VIEW ----------------
     def create_cpu_view(self):
@@ -304,23 +409,44 @@ class App(tk.Tk):
             tags="ui"
         )
 
-        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_start, scale=0.4)
 
-        # dropdown 
+        # dropdown
         algo_menu = tk.OptionMenu(
             self,
             self.selected_algo,
             "FCFS",
             "SJF",
-            "Priority"
+            "SRTF (Preemptive)",
+            "Priority (Non-Preemptive)",
+            "Priority (Preemptive)",
+            "Round Robin"
         )
 
         self.canvas.create_window(
             container_x - 440,
-            container_y + 220,
-            window=algo_menu
+            container_y + 195,
+            window=algo_menu,
+            tags="ui"
         )
-        algo_menu.config( font=("Arial", 26))
+        self.style_option_menu(algo_menu, width=22)
+
+        self.canvas.create_text(
+            container_x - 510,
+            container_y + 245,
+            text="Quantum",
+            font=(FONT_SEMIBOLD, 12),
+            fill=TEXT_PRIMARY,
+            tags="ui"
+        )
+        quantum_entry = tk.Entry(self, textvariable=self.cpu_quantum_var, width=6, font=("Segoe UI", 12))
+        self.style_entry(quantum_entry)
+        self.canvas.create_window(
+            container_x - 425,
+            container_y + 245,
+            window=quantum_entry,
+            tags="ui"
+        )
 
         # table manager
         if self.cpu_table_manager is None:
@@ -331,6 +457,22 @@ class App(tk.Tk):
                 base_y=190,
                 col_x=[40, 110, 200]
             )
+            saved = self._cpu_table_saved_data or []
+            for i, row in enumerate(saved):
+                while len(self.cpu_table_manager.entries) <= i:
+                    self.cpu_table_manager.add_row()
+
+                arrival_entry, burst_entry, priority_entry = self.cpu_table_manager.entries[i]
+                burst_val = str(row[1]) if len(row) > 1 and row[1] is not None else ""
+                arrival_val = str(row[2]) if len(row) > 2 and row[2] is not None else ""
+                priority_val = str(row[3]) if len(row) > 3 and row[3] is not None else ""
+
+                arrival_entry.delete(0, tk.END)
+                arrival_entry.insert(0, arrival_val)
+                burst_entry.delete(0, tk.END)
+                burst_entry.insert(0, burst_val)
+                priority_entry.delete(0, tk.END)
+                priority_entry.insert(0, priority_val)
 
         if len(self.cpu_table_manager.rows) == 0:
             self.cpu_table_manager.add_row()
@@ -361,15 +503,18 @@ class App(tk.Tk):
             tags="ui"
         )
 
-        entry_font = ("Arial", 12)
+        entry_font = ("Segoe UI", 12)
 
         disk_size_entry = tk.Entry(self, textvariable=self.disk_size_var, width=9, font=entry_font)
+        self.style_entry(disk_size_entry)
         self.canvas.create_window(container_x - 455, container_y - 220, window=disk_size_entry, tags="ui")
 
         head_entry = tk.Entry(self, textvariable=self.disk_head_var, width=9, font=entry_font)
+        self.style_entry(head_entry)
         self.canvas.create_window(container_x - 150, container_y - 220, window=head_entry, tags="ui")
 
         requests_entry = tk.Entry(self, textvariable=self.disk_requests_var, width=24, font=entry_font)
+        self.style_entry(requests_entry)
         self.canvas.create_window(container_x + 167, container_y - 220, window=requests_entry, tags="ui")
 
         algo_menu = tk.OptionMenu(
@@ -383,14 +528,14 @@ class App(tk.Tk):
             "C-LOOK"
         )
         self.canvas.create_window(container_x + 465, container_y - 230, window=algo_menu, tags="ui")
-        algo_menu.config(font=("Arial", 14), width=7)
+        self.style_option_menu(algo_menu, width=8)
 
         total_frame = tk.Label(
             self,
             textvariable=self.disk_total_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 14),
+            bg=PANEL_BG_DARK,
+            fg=TEXT_PRIMARY,
+            font=(FONT_SEMIBOLD, 13),
             justify="left",
             width=20,
             height=6,
@@ -403,9 +548,9 @@ class App(tk.Tk):
             self,
             width=24,
             height=4,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 11)
+            bg=PANEL_BG_DARK,
+            fg=TEXT_PRIMARY,
+            font=(FONT_FAMILY, 10)
         )
         self.disk_sequence_text.insert("1.0", "Sequence:\n")
         self.disk_sequence_text.config(state="disabled")
@@ -415,13 +560,13 @@ class App(tk.Tk):
             self,
             width=850,
             height=400,
-            bg="#193c54",
+            bg=PANEL_BG_DARK,
             bd=0,
             highlightthickness=0
         )
         self.canvas.create_window(container_x + 155, container_y + 65, window=self.disk_graph_canvas, tags="ui")
 
-        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_start, scale=0.4)
 
         # run button
         self.create_button("disk_run", "start_button", 0.134, 0.57, self.run_disk_scheduler, scale=0.3)
@@ -449,18 +594,21 @@ class App(tk.Tk):
             tags="ui"
         )
 
-        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_start, scale=0.4)
 
-        entry_font = ("Arial", 12)
+        entry_font = ("Segoe UI", 12)
 
         # System inputs
         total_entry = tk.Entry(self, textvariable=self.memory_total_mem_var, width=6, font=entry_font)
+        self.style_entry(total_entry)
         self.canvas.create_window(container_x - 165, container_y - 145, window=total_entry, tags="ui")
 
         os_entry = tk.Entry(self, textvariable=self.memory_os_size_var, width=6, font=entry_font)
+        self.style_entry(os_entry)
         self.canvas.create_window(container_x + 50, container_y - 145, window=os_entry, tags="ui")
 
         quantum_entry = tk.Entry(self, textvariable=self.memory_quantum_var, width=6, font=entry_font)
+        self.style_entry(quantum_entry)
         self.canvas.create_window(container_x + 270, container_y - 145, window=quantum_entry, tags="ui")
 
         policy_menu = tk.OptionMenu(
@@ -472,7 +620,7 @@ class App(tk.Tk):
             "Next Fit"
         )
         self.canvas.create_window(container_x + 490, container_y - 145, window=policy_menu, tags="ui")
-        policy_menu.config(font=("Arial", 11), width=8)
+        self.style_option_menu(policy_menu, width=9)
 
         # Process table (re-uses ProcessTableManager from CPU view)
         need_create = False
@@ -523,9 +671,9 @@ class App(tk.Tk):
         metrics_label = tk.Label(
             self,
             textvariable=self.memory_metrics_var,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 10),
+            bg=PANEL_BG_DARK,
+            fg=TEXT_PRIMARY,
+            font=(FONT_FAMILY, 10),
             justify="left",
             width=24,
             height=2,
@@ -539,9 +687,9 @@ class App(tk.Tk):
             self,
             width=28,
             height=21,
-            bg="#193c54",
-            fg="white",
-            font=("Arial", 10)
+            bg=PANEL_BG_DARK,
+            fg=TEXT_PRIMARY,
+            font=(FONT_FAMILY, 10)
         )
         self.memory_log_text.insert("1.0", "Logs:\n")
         self.memory_log_text.config(state="disabled")
@@ -551,32 +699,20 @@ class App(tk.Tk):
             self,
             width=600,
             height=350,
-            bg="#193c54",
+            bg=PANEL_BG_DARK,
             bd=0,
             highlightthickness=0
         )
         self.canvas.create_window(container_x + 275, container_y + 75, window=self.memory_map_canvas, tags="ui")
 
         # Initialize and Step buttons
-        init_btn = tk.Button(
-            self,
-            text="Initialize",
-            command=self.init_memory_simulation,
-            font=("Arial", 11),
-            bg="#2a5a8a",
-            fg="white",
-            padx=15,
-            pady=5
-        )
+        init_btn = self.create_panel_button(self, "Initialize", self.init_memory_simulation, padx=15, pady=5)
         self.canvas.create_window(container_x - 180, container_y + 320, window=init_btn, tags="ui")
 
-        self.memory_step_btn = tk.Button(
+        self.memory_step_btn = self.create_panel_button(
             self,
-            text="Next Step (1ms)",
-            command=self.memory_step_simulation,
-            font=("Arial", 11),
-            bg="#2a5a8a",
-            fg="white",
+            "Next Step (1ms)",
+            self.memory_step_simulation,
             padx=15,
             pady=5,
             state="disabled"
@@ -588,63 +724,85 @@ class App(tk.Tk):
         w, h = 1420, 780
         self.canvas.delete("ui")
 
-        # Background Configuration
         cont_img = self.imgs["virt_cont"]
-        cont_w = int(w * 0.9)
-        cont_h = int(h * 0.75)
+        cont_w = int(w * 0.92)
+        cont_h = int(cont_w * cont_img.height / cont_img.width)
         resized = cont_img.resize((cont_w, cont_h), Image.Resampling.LANCZOS)
         self.virtual_cont_tk = ImageTk.PhotoImage(resized)
 
         container_x = w // 2
         container_y = h // 2 + 30
         self.canvas.create_image(container_x, container_y, image=self.virtual_cont_tk, tags="ui")
-        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_start, scale=0.4)
 
-        # 1. Reference String Entry (Top Left Box)
-        pages_entry = tk.Entry(self, textvariable=self.virtual_pages_var, width=18, font=("Arial", 16), justify="center")
-        self.canvas.create_window(container_x - 390, container_y - 170, window=pages_entry, tags="ui")
+        input_frame = tk.Frame(self, bg=PANEL_BG)
+        pages_entry = tk.Entry(
+            input_frame,
+            textvariable=self.virtual_pages_var,
+            width=24,
+            font=("Segoe UI", 13),
+            justify="center"
+        )
+        self.style_entry(pages_entry)
+        pages_entry.grid(row=0, column=0, columnspan=3, padx=8, pady=(0, 12), sticky="ew")
+        tk.Label(input_frame, text="Frames", font=(FONT_SEMIBOLD, 12), bg=PANEL_BG, fg=TEXT_PRIMARY).grid(row=1, column=0, padx=(8, 4))
+        capacity_entry = tk.Entry(input_frame, textvariable=self.virtual_capacity_var, width=5, font=(FONT_FAMILY, 12), justify="center")
+        self.style_entry(capacity_entry)
+        capacity_entry.grid(row=1, column=1, padx=4)
 
-        # 2. Frames Label & Input (Below Reference String)
-        frames_frame = tk.Frame(self, bg="#193c54")
-        tk.Label(frames_frame, text="Frames:", font=("Arial", 14), bg="#193c54", fg="white").pack(side="left")
-        tk.Entry(frames_frame, textvariable=self.virtual_capacity_var, width=5, font=("Arial", 14), justify="center").pack(side="left", padx=5)
-        self.canvas.create_window(container_x - 390, container_y - 100, window=frames_frame, tags="ui")
+        self.virtual_step_btn = self.create_panel_button(
+            input_frame,
+            "Step",
+            self.virtual_step_simulation,
+            state="disabled"
+        )
+        self.create_panel_button(
+            input_frame,
+            "Init",
+            self.init_virtual_simulation,
+        ).grid(row=2, column=0, padx=4, pady=(14, 0))
+        self.virtual_step_btn.grid(row=2, column=1, padx=4, pady=(14, 0))
+        self.virtual_run_btn = self.create_panel_button(
+            input_frame,
+            "Run All",
+            self.run_virtual_simulation,
+            state="disabled"
+        )
+        self.virtual_run_btn.grid(row=2, column=2, padx=4, pady=(14, 0))
+        self.canvas.create_window(container_x - 465, container_y - 65, window=input_frame, tags="ui")
 
-        # 3. Page Fault Count Box (Top Middle-Left)
-        faults_label = tk.Label(self, textvariable=self.virtual_faults_var, font=("Arial", 24, "bold"), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x - 110, container_y - 170, window=faults_label, tags="ui")
+        self.virtual_faults_text_id = self.canvas.create_text(
+            container_x - 150,
+            container_y - 190,
+            text=self.virtual_faults_var.get(),
+            font=(FONT_SEMIBOLD, 22),
+            fill=TEXT_PRIMARY,
+            tags="ui"
+        )
 
-        # 4. Page Hit Count Box (Top Middle-Right)
-        hits_label = tk.Label(self, textvariable=self.virtual_hits_var, font=("Arial", 24, "bold"), bg="#193c54", fg="white")
-        self.canvas.create_window(container_x + 165, container_y - 170, window=hits_label, tags="ui")
+        self.virtual_hits_text_id = self.canvas.create_text(
+            container_x + 160,
+            container_y - 190,
+            text=self.virtual_hits_var.get(),
+            font=(FONT_SEMIBOLD, 22),
+            fill=TEXT_PRIMARY,
+            tags="ui"
+        )
 
-        # 5. Algorithm Option Menu (Top Right Box)
         self.virtual_algo_var.set(self.virtual_algo_var.get().upper())
         algo_menu = tk.OptionMenu(self, self.virtual_algo_var, "FIFO", "LRU", "OPTIMAL", "LFU")
-        algo_menu.config(font=("Arial", 14), width=8)
-        self.canvas.create_window(container_x + 440, container_y - 170, window=algo_menu, tags="ui")
+        self.style_option_menu(algo_menu, width=10)
+        self.canvas.create_window(container_x + 465, container_y - 190, window=algo_menu, tags="ui")
 
-        # Initialize & Next Step Buttons
-        btn_frame = tk.Frame(self, bg="#193c54")
-        tk.Button(btn_frame, text="Initialize", command=self.init_virtual_simulation, font=("Arial", 11, "bold"), bg="#2a5a8a", fg="white", padx=10, pady=5).pack(side="left", padx=5)
-        self.virtual_step_btn = tk.Button(btn_frame, text="Next Step", command=self.virtual_step_simulation, font=("Arial", 11, "bold"), bg="#2a5a8a", fg="white", padx=10, pady=5, state="disabled")
-        self.virtual_step_btn.pack(side="left", padx=5)
-        self.canvas.create_window(container_x - 390, container_y - 40, window=btn_frame, tags="ui")
-
-        # Left Side Big Box: Scrollable Text for Frames and General Logs
-        frames_log_frame, self.virtual_sequence_text = create_scrollable_text(self, width=28, height=8, bg="#193c54", fg="white", font=("Arial", 11))
-        self.virtual_sequence_text.insert("1.0", "Frames:\n")
-        self.virtual_sequence_text.config(state="disabled")
-        self.canvas.create_window(container_x - 390, container_y + 80, window=frames_log_frame, tags="ui")
-
-        logs_frame, self.virtual_log_text = create_scrollable_text(self, width=28, height=8, bg="#193c54", fg="white", font=("Arial", 11))
-        self.virtual_log_text.insert("1.0", "Logs:\n")
+        logs_frame, self.virtual_log_text = create_scrollable_text(self, width=29, height=8, bg=PANEL_BG, fg=TEXT_PRIMARY, font=(FONT_FAMILY, 9))
+        self.virtual_log_text.insert("1.0", "Activity:\n")
         self.virtual_log_text.config(state="disabled")
-        self.canvas.create_window(container_x - 390, container_y + 230, window=logs_frame, tags="ui")
+        self.virtual_sequence_text = None
+        self.canvas.create_window(container_x - 465, container_y + 220, window=logs_frame, tags="ui")
 
-        # Right Side Big Box: Canvas for Frame Visuals
-        self.virtual_frames_canvas = tk.Canvas(self, width=700, height=360, bg="#193c54", bd=0, highlightthickness=0)
-        self.canvas.create_window(container_x + 180, container_y + 130, window=self.virtual_frames_canvas, tags="ui")
+        self.virtual_frames_canvas = tk.Canvas(self, width=885, height=410, bg=PANEL_BG, bd=0, highlightthickness=0)
+        self.canvas.create_window(container_x + 160, container_y + 105, window=self.virtual_frames_canvas, tags="ui")
+        self.draw_virtual_frames()
 
     def memory_add_process(self):
         try:
@@ -699,7 +857,7 @@ class App(tk.Tk):
         if self.virtual_log_text:
             self.virtual_log_text.config(state="normal")
             self.virtual_log_text.delete("1.0", "end")
-            self.virtual_log_text.insert("1.0", "Logs:\n")
+            self.virtual_log_text.insert("1.0", "Activity:\n")
             self.virtual_log_text.config(state="disabled")
         if self.virtual_sequence_text:
             self.virtual_sequence_text.config(state="normal")
@@ -708,106 +866,255 @@ class App(tk.Tk):
             self.virtual_sequence_text.config(state="disabled")
 
     # --- Virtual Memory Step-by-Step Logic ---
+    def update_virtual_counters(self):
+        if self.virtual_faults_text_id:
+            self.canvas.itemconfig(self.virtual_faults_text_id, text=self.virtual_faults_var.get())
+        if self.virtual_hits_text_id:
+            self.canvas.itemconfig(self.virtual_hits_text_id, text=self.virtual_hits_var.get())
+
+    def parse_virtual_reference_string(self):
+        raw_pages = self.virtual_pages_var.get().strip()
+        tokens = [token for token in re.split(r"[,\s]+", raw_pages) if token]
+        return [int(token) for token in tokens]
+
     def init_virtual_simulation(self):
         try:
-            raw_pages = self.virtual_pages_var.get()
-            self.virtual_pages_list = [int(x.strip()) for x in raw_pages.split(",") if x.strip() != ""]
+            self.virtual_pages_list = self.parse_virtual_reference_string()
             capacity = int(self.virtual_capacity_var.get())
             algo = self.virtual_algo_var.get().lower()
         except ValueError:
             self.append_virtual_log("Error: Invalid reference string or capacity.")
             return
 
-        if capacity <= 0 or not self.virtual_pages_list:
-            self.append_virtual_log("Error: Capacity > 0 and Reference String required.")
+        if capacity <= 0:
+            self.append_virtual_log("Error: Frames must be greater than 0.")
             return
 
-        # Initialize manager
+        if capacity > 10:
+            self.append_virtual_log("Error: Use 10 frames or fewer for a readable graph.")
+            return
+
+        if not self.virtual_pages_list:
+            self.append_virtual_log("Error: Reference string is required.")
+            return
+
         self.virtual_manager = self.virtual_module.PageReplacementManager(capacity, algo)
         self.virtual_current_step = 0
         self.virtual_faults = 0
         self.virtual_hits = 0
+        self.virtual_history = []
 
-        # Reset counts UI
         self.virtual_faults_var.set("0")
         self.virtual_hits_var.set("0")
-        
-        # Clear logs and canvas
-        self.clear_virtual_logs()
-        if self.virtual_frames_canvas:
-            self.virtual_frames_canvas.delete("all")
+        self.update_virtual_counters()
 
-        self.append_virtual_log(f"Simulation initialized with {algo.upper()} algorithm.")
-        
-        # Enable Step button
+        self.clear_virtual_logs()
+        self.draw_virtual_frames()
+        self.append_virtual_log(f"{algo.upper()} initialized.")
+
         if hasattr(self, 'virtual_step_btn') and self.virtual_step_btn:
             self.virtual_step_btn.config(state="normal")
+        if hasattr(self, 'virtual_run_btn') and self.virtual_run_btn:
+            self.virtual_run_btn.config(state="normal")
 
-    def virtual_step_simulation(self):
+    def run_virtual_simulation(self):
+        if not self.virtual_manager:
+            self.init_virtual_simulation()
+            if not self.virtual_manager:
+                return
+
+        while self.virtual_current_step < len(self.virtual_pages_list):
+            self.virtual_step_simulation(log_step=False)
+
+        self.append_virtual_log("--- SIMULATION COMPLETE ---")
+
+    def virtual_step_simulation(self, log_step=True):
         if not self.virtual_manager or self.virtual_current_step >= len(self.virtual_pages_list):
             self.append_virtual_log("--- SIMULATION COMPLETE ---")
             if hasattr(self, 'virtual_step_btn') and self.virtual_step_btn:
                 self.virtual_step_btn.config(state="disabled")
+            if hasattr(self, 'virtual_run_btn') and self.virtual_run_btn:
+                self.virtual_run_btn.config(state="disabled")
             return
 
         page = self.virtual_pages_list[self.virtual_current_step]
         algo = self.virtual_algo_var.get().lower()
 
-        # Execute single step
         if algo == "optimal":
             future_refs = self.virtual_pages_list[self.virtual_current_step + 1:]
             frames, is_fault = self.virtual_manager.step(page, future_refs)
         else:
             frames, is_fault = self.virtual_manager.step(page)
 
-        # Update metrics and variables
         if is_fault:
             self.virtual_faults += 1
-            status = "FAULT (Y)"
+            status = "FAULT"
         else:
             self.virtual_hits += 1
-            status = "HIT (N)"
+            status = "HIT"
 
         self.virtual_faults_var.set(str(self.virtual_faults))
         self.virtual_hits_var.set(str(self.virtual_hits))
+        self.update_virtual_counters()
 
-        # Output to scroll logs
-        self.append_virtual_sequence(f"P{page}: {frames} | {status}")
-        self.append_virtual_log(f"Step {self.virtual_current_step + 1}: Page {page} requested -> {status}")
-
-        # Visuals
-        self.draw_virtual_frames(frames)
+        self.virtual_history.append({
+            "page": page,
+            "frames": list(frames),
+            "status": status,
+            "is_fault": is_fault
+        })
         self.virtual_current_step += 1
-        
+        self.draw_virtual_frames()
+
+        if log_step:
+            frame_text = ", ".join(str(frame) for frame in frames)
+            self.append_virtual_log(f"{self.virtual_current_step}. Page {page}: {status} | [{frame_text}]")
+
         if self.virtual_current_step >= len(self.virtual_pages_list):
-            self.append_virtual_log("--- SIMULATION COMPLETE ---")
+            if log_step:
+                self.append_virtual_log("--- SIMULATION COMPLETE ---")
             if hasattr(self, 'virtual_step_btn') and self.virtual_step_btn:
                 self.virtual_step_btn.config(state="disabled")
+            if hasattr(self, 'virtual_run_btn') and self.virtual_run_btn:
+                self.virtual_run_btn.config(state="disabled")
 
-    def draw_virtual_frames(self, frames):
+    def draw_virtual_frames(self, frames=None):
         if self.virtual_frames_canvas is None:
             return
 
         self.virtual_frames_canvas.delete("all")
         width = int(self.virtual_frames_canvas["width"])
         height = int(self.virtual_frames_canvas["height"])
-        padding = 20
-        frame_count = max(1, len(frames))
-        box_width = (width - padding * 2) / frame_count
-        box_height = height - padding * 2
+        try:
+            pages = (self.virtual_pages_list or self.parse_virtual_reference_string()) if self.virtual_pages_var.get().strip() else []
+        except ValueError:
+            pages = []
+        capacity = int(self.virtual_capacity_var.get()) if self.virtual_capacity_var.get().isdigit() else 3
+        capacity = max(1, min(10, capacity))
 
-        for idx, page in enumerate(frames):
-            x1 = padding + idx * box_width
-            y1 = padding
-            x2 = x1 + box_width - 10
-            y2 = y1 + box_height
-            self.virtual_frames_canvas.create_rectangle(x1, y1, x2, y2, fill="#4caf50", outline="white", width=2)
+        if not pages:
+            self.virtual_frames_canvas.create_text(
+                width // 2,
+                height // 2,
+                text="Enter references and initialize.",
+                fill=TEXT_MUTED,
+                font=(FONT_SEMIBOLD, 16)
+            )
+            return
+
+        padding = 18
+        label_w = 64
+        header_h = 42
+        status_h = 42
+        table_w = width - (padding * 2) - label_w
+        col_w = table_w / len(pages)
+        row_h = (height - (padding * 2) - header_h - status_h) / max(1, capacity)
+        font_size = max(8, min(13, int(col_w * 0.36), int(row_h * 0.42)))
+        small_font_size = max(7, min(10, font_size - 1))
+
+        self.virtual_frames_canvas.create_text(
+            padding + 5,
+            padding + header_h / 2,
+            text="Page",
+            fill=TEXT_MUTED,
+            anchor="w",
+            font=(FONT_SEMIBOLD, 10)
+        )
+
+        for i, page in enumerate(pages):
+            x1 = padding + label_w + (i * col_w)
+            x2 = x1 + col_w
+            completed = i < len(self.virtual_history)
+            current = i == len(self.virtual_history) - 1
+            fill = "#f3f8fb" if completed else "#254d62"
+            outline = ACCENT if current else "#16384a"
+
+            self.virtual_frames_canvas.create_rectangle(
+                x1, padding, x2, padding + header_h,
+                fill=fill,
+                outline=outline,
+                width=2 if current else 1
+            )
             self.virtual_frames_canvas.create_text(
                 (x1 + x2) / 2,
-                (y1 + y2) / 2,
+                padding + header_h / 2,
                 text=str(page),
-                fill="white",
-                font=("Arial", 16, "bold")
+                fill=INK if completed else TEXT_MUTED,
+                font=(FONT_SEMIBOLD, font_size)
+            )
+
+        for frame_index in range(capacity):
+            y1 = padding + header_h + (frame_index * row_h)
+            y2 = y1 + row_h
+            self.virtual_frames_canvas.create_text(
+                padding + 5,
+                (y1 + y2) / 2,
+                text=f"F{frame_index + 1}",
+                fill=TEXT_MUTED,
+                anchor="w",
+                font=(FONT_SEMIBOLD, 10)
+            )
+            self.virtual_frames_canvas.create_line(
+                padding,
+                y2,
+                width - padding,
+                y2,
+                fill="#5f93aa"
+            )
+
+            for step_index in range(len(pages)):
+                x1 = padding + label_w + (step_index * col_w)
+                x2 = x1 + col_w
+                value = ""
+
+                if step_index < len(self.virtual_history):
+                    step_frames = self.virtual_history[step_index]["frames"]
+                    if frame_index < len(step_frames):
+                        value = str(step_frames[frame_index])
+
+                self.virtual_frames_canvas.create_rectangle(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    fill=PANEL_BG,
+                    outline="#5f93aa"
+                )
+                if value:
+                    self.virtual_frames_canvas.create_text(
+                        (x1 + x2) / 2,
+                        (y1 + y2) / 2,
+                        text=value,
+                        fill=TEXT_PRIMARY,
+                        font=(FONT_SEMIBOLD, font_size)
+                    )
+
+        status_y1 = height - padding - status_h
+        self.virtual_frames_canvas.create_text(
+            padding + 5,
+            status_y1 + status_h / 2,
+            text="Result",
+            fill=TEXT_MUTED,
+            anchor="w",
+            font=(FONT_SEMIBOLD, 10)
+        )
+
+        for i in range(len(pages)):
+            x1 = padding + label_w + (i * col_w)
+            x2 = x1 + col_w
+            if i >= len(self.virtual_history):
+                self.virtual_frames_canvas.create_rectangle(x1, status_y1, x2, status_y1 + status_h, fill="#254d62", outline="#5f93aa")
+                continue
+
+            status = self.virtual_history[i]["status"]
+            fill = "#d95f59" if status == "FAULT" else "#42a478"
+            self.virtual_frames_canvas.create_rectangle(x1, status_y1, x2, status_y1 + status_h, fill=fill, outline=INK)
+            self.virtual_frames_canvas.create_text(
+                (x1 + x2) / 2,
+                status_y1 + status_h / 2,
+                text="F" if status == "FAULT" else "H",
+                fill=TEXT_PRIMARY,
+                font=(FONT_SEMIBOLD, small_font_size)
             )
 
     def append_memory_log(self, message):
@@ -950,40 +1257,40 @@ class App(tk.Tk):
             return
 
         self.memory_map_canvas.delete("all")
-        
+
         # Canvas dimensions
         width = int(self.memory_map_canvas["width"])
         height = int(self.memory_map_canvas["height"])
         padding = 15
         tot = self.memory_manager.total_memory
-        
+
         # Calculate scale
         y_scale = (height - padding * 2) / tot if tot > 0 else 1
         y_offset = padding
-        
+
         # Draw OS section
         os_h = max(10, self.memory_manager.os_size * y_scale)
         self.memory_map_canvas.create_rectangle(
-            padding, y_offset, 
-            width - padding, y_offset + os_h, 
-            fill="#555555", 
+            padding, y_offset,
+            width - padding, y_offset + os_h,
+            fill="#555555",
             outline="white",
             width=2
         )
         self.memory_map_canvas.create_text(
-            width // 2, y_offset + os_h / 2, 
-            text=f"OS ({self.memory_manager.os_size}K)", 
+            width // 2, y_offset + os_h / 2,
+            text=f"OS ({self.memory_manager.os_size}K)",
             fill="white",
-            font=("Arial", 9, "bold")
+            font=("Segoe UI", 9, "bold")
         )
         y_offset += os_h
-        
+
         # Draw memory blocks
         for block in self.memory_manager.blocks:
             block_h = max(10, block[1] * y_scale)
             color = "#f0f0f0" if block[2] else "#88ccff"  # Light gray for free, light blue for allocated
             outline_color = "#999999" if block[2] else "#0066cc"
-            
+
             self.memory_map_canvas.create_rectangle(
                 padding, y_offset,
                 width - padding, y_offset + block_h,
@@ -991,14 +1298,14 @@ class App(tk.Tk):
                 outline=outline_color,
                 width=2
             )
-            
+
             # Label
             label = f"Free ({block[1]}K)" if block[2] else f"{block[3]} ({block[1]}K)"
             self.memory_map_canvas.create_text(
                 width // 2, y_offset + block_h / 2,
                 text=label,
                 fill="black" if block[2] else "white",
-                font=("Arial", 8)
+                font=("Segoe UI", 8)
             )
             y_offset += block_h
 
@@ -1074,9 +1381,9 @@ class App(tk.Tk):
 
         self.disk_total_var.set(f"Total Movement:\n{total}")
         self.set_disk_log("Sequence:\n" + " -> ".join(map(str, sequence)))
-        
+
         self.draw_disk_graph(sequence, disk_size)
-        
+
     def draw_disk_graph(self, sequence, disk_size):
         if self.disk_graph_canvas is None:
             return
@@ -1110,17 +1417,119 @@ class App(tk.Tk):
 
         for i, (x, y) in enumerate(points):
             self.disk_graph_canvas.create_oval(x-5, y-5, x+5, y+5, fill="white", outline="white")
-            self.disk_graph_canvas.create_text(x, y - 12, text=str(sequence[i]), fill="white", font=("Arial", 9))
+            self.disk_graph_canvas.create_text(x, y - 12, text=str(sequence[i]), fill="white", font=("Segoe UI", 9))
 
         self.disk_graph_canvas.create_text(
             width // 2,
             height - 15,
             text="Head movement graph",
             fill="white",
-            font=("Arial", 11, "bold")
+            font=("Segoe UI", 11, "bold")
         )
 
     # ---------------- ALGORITHM RUN ----------------
+    def draw_cpu_message(self, message):
+        self.canvas.delete("gantt")
+        w, h = 1420, 780
+        cx = w // 2
+        cy = h // 2 + 30
+
+        self.canvas.create_text(
+            cx + 205,
+            cy - 215,
+            text=message,
+            font=(FONT_SEMIBOLD, 16),
+            fill=ACCENT,
+            width=760,
+            tags="gantt"
+        )
+
+    def draw_cpu_metric_panel(self, x, y, values, avg_value):
+        row_height = 28
+        max_rows = 8
+
+        for i, (name, value) in enumerate(zip(self.scheduler.process_names, values)):
+            col = i // max_rows
+            row = i % max_rows
+            self.canvas.create_text(
+                x + (col * 160),
+                y + (row * row_height),
+                text=f"{name}: {value}",
+                font=(FONT_SEMIBOLD, 14),
+                fill=TEXT_PRIMARY,
+                anchor="w",
+                tags="gantt"
+            )
+
+        self.canvas.create_text(
+            x,
+            y + 250,
+            text=f"Average: {avg_value:.2f}",
+            font=(FONT_SEMIBOLD, 15),
+            fill=ACCENT,
+            anchor="w",
+            tags="gantt"
+        )
+
+    def draw_cpu_gantt(self, segments):
+        if not segments:
+            return
+
+        w, h = 1420, 780
+        cx = w // 2
+        cy = h // 2 + 30
+
+        x0 = cx - 235
+        x1 = cx + 550
+        y0 = cy - 230
+        y1 = y0 + 48
+        total_time = max(1, segments[-1]["end"] - segments[0]["start"])
+        scale = (x1 - x0) / total_time
+
+        for segment in segments:
+            start = segment["start"]
+            end = segment["end"]
+            label = segment["process"]
+            left = x0 + ((start - segments[0]["start"]) * scale)
+            right = x0 + ((end - segments[0]["start"]) * scale)
+            fill = "#f2f7fb" if label != "Idle" else "#8aa3b3"
+
+            self.canvas.create_rectangle(
+                left, y0, right, y1,
+                fill=fill,
+                outline=INK,
+                width=2,
+                tags="gantt"
+            )
+
+            if right - left >= 26:
+                self.canvas.create_text(
+                    (left + right) / 2,
+                    (y0 + y1) / 2,
+                    text=label,
+                    font=(FONT_SEMIBOLD, 11),
+                    fill=INK,
+                    tags="gantt"
+                )
+
+            self.canvas.create_text(
+                left,
+                y1 + 14,
+                text=str(start),
+                font=(FONT_FAMILY, 9),
+                fill=TEXT_PRIMARY,
+                tags="gantt"
+            )
+
+        self.canvas.create_text(
+            x1,
+            y1 + 14,
+            text=str(segments[-1]["end"]),
+            font=(FONT_FAMILY, 9),
+            fill=TEXT_PRIMARY,
+            tags="gantt"
+        )
+
     def run_scheduler(self):
         self.canvas.delete("gantt")
 
@@ -1129,6 +1538,7 @@ class App(tk.Tk):
 
         data = self.cpu_table_manager.get_data()
         if not data:
+            self.draw_cpu_message("Add at least one process with arrival and burst time.")
             return
 
         algo = self.selected_algo.get()
@@ -1140,16 +1550,25 @@ class App(tk.Tk):
                 self.result = self.scheduler.FCFS()
             elif algo == "SJF":
                 self.result = self.scheduler.SJF()
-            elif algo == "Priority":
+            elif algo == "SRTF (Preemptive)":
+                self.result = self.scheduler.SRT()
+            elif algo == "Priority (Non-Preemptive)":
                 self.result = self.scheduler.NonPreemptivePriority()
+            elif algo == "Priority (Preemptive)":
+                self.result = self.scheduler.PreemptivePriority()
+            elif algo == "Round Robin":
+                self.result = self.scheduler.RoundRobin(self.cpu_quantum_var.get())
             else:
                 return
 
         except Exception as e:
             print("Scheduler error:", e)
+            self.draw_cpu_message(str(e))
             return
 
-        processes = self.result.get("process", [])
+        segments = self.result.get("segments", [])
+        tat = self.result.get("tat", [])
+        wt = self.result.get("wt", [])
         avg_tat = self.result.get("avg_tat", 0)
         avg_wt = self.result.get("avg_wt", 0)
 
@@ -1157,34 +1576,9 @@ class App(tk.Tk):
         cx = w // 2
         cy = h // 2 + 30
 
-        self.canvas.create_text(
-            cx + 200,
-            cy - 260,
-            text=f"AVG TAT: {avg_tat:.2f} | AVG WT: {avg_wt:.2f}",
-            font=("Arial", 14),
-            fill="yellow",
-            tags="gantt"
-        )
-
-        # GANTT
-        x = cx - 200
-        y = cy - 220
-
-        for p in processes:
-            self.canvas.create_rectangle(
-                x, y, x + 80, y + 40,
-                fill="white",
-                tags="gantt"
-            )
-
-            self.canvas.create_text(
-                x + 40, y + 20,
-                text=p,
-                fill="black",
-                tags="gantt"
-            )
-
-            x += 80
+        self.draw_cpu_gantt(segments)
+        self.draw_cpu_metric_panel(cx - 210, cy - 55, tat, avg_tat)
+        self.draw_cpu_metric_panel(cx + 245, cy - 55, wt, avg_wt)
 
 
 if __name__ == "__main__":
