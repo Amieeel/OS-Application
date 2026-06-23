@@ -8,6 +8,7 @@ import os
 import re
 from Memory_Management import Process as MemProcess, MemoryManager as MemMemoryManager
 from process_manager import ProcessTableManager
+from content_data import LEARN_CONTENT, ABOUT_CONTENT
 
 
 FONT_FAMILY = "Segoe UI"
@@ -372,6 +373,12 @@ class App(tk.Tk):
     def on_virtual(self):
         self.switch_screen("virtual_bg", self.create_virtual_view)
 
+    def on_learn(self):
+        self.switch_screen("learn", self.create_learn_view)
+        
+    def on_about(self):
+        self.switch_screen("about", self.create_about_view) 
+
     # ---------------- MENUS ----------------
     def create_main_menu(self):
         self.create_button("start", "start_button", 0.4, 0.45, self.on_start, scale=0.65)
@@ -384,6 +391,118 @@ class App(tk.Tk):
         self.create_button("DISK", "Disk_sched_button", 0.285, 0.27, self.on_disk, scale=0.72)
         self.create_button("MEM", "Main_mem_button", 0.505, 0.27, self.on_memory, scale=0.72)
         self.create_button("VIRT", "Virt_mem_button", 0.725, 0.27, self.on_virtual, scale=0.72)
+
+
+     # ---------------- LEARN----------------
+    def create_learn_view(self):
+        w, h = 1420, 780
+        self.canvas.delete("ui")
+
+        cont_img = self.imgs["learn-cont"]
+        resized = cont_img.resize((int(w * 0.9), int(h * 0.75)), Image.Resampling.LANCZOS)
+        self.learn_cont_tk = ImageTk.PhotoImage(resized)
+        self.canvas.create_image(w // 2, h // 2 + 30, image=self.learn_cont_tk, tags="ui")
+        
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
+        
+        # Mini-buttons for topics
+        self.create_button("cpu_info", "CpuSched_MiniButton", 0.15, 0.25, lambda: self.show_learn_content("CPU"), scale=0.8)
+        self.create_button("mem_info", "MainMem_Minibutton", 0.35, 0.25, lambda: self.show_learn_content("MEM"), scale=0.8)
+        self.create_button("virt_info", "Virtual_MiniButton", 0.55, 0.25, lambda: self.show_learn_content("VIRT"), scale=0.8)
+        self.create_button("disk_info", "Disk_MiniButton", 0.75, 0.25, lambda: self.show_learn_content("DISK"), scale=0.8)
+
+        self.learn_frame, self.learn_text = create_scrollable_text(
+            self, 
+            width=80, 
+            height=12,
+            bg="#193c54",
+            fg="white",
+            font=("Arial", 11)
+        )
+        self.canvas.create_window(w // 2, h // 2 + 150, window=self.learn_frame, tags="ui")
+        
+        self.learn_text.config(state="normal")
+      
+        self.learn_text.config(state="disabled")
+
+        
+    def show_learn_content(self, topic):
+        content_data = {
+            "CPU": """CPU Scheduling Algorithms
+    ---------------------
+    Inputs: You provide a list of processes along with Arrival Times, Burst Times, Priorities, and a Time Quantum.
+    Visualization: The app generates a live Gantt Chart, displaying exactly which process occupies the CPU at any given millisecond.
+    Simulation: Step through time to watch processes arrive, preempt, and finish.""",
+
+            "MEM": """Memory Management
+    ------------------
+    Inputs: Define the Total Memory size, OS size, and a queue of incoming jobs.
+    Visualization: A dynamic Memory Map draws the memory blocks, showing where the OS lives, where user processes are loaded, and where free "holes" exist.
+    Simulation: Watch algorithms like First Fit, Best Fit, Worst Fit, and Next Fit hunt for appropriate holes and track fragmentation levels.""",
+
+            "VIRT": """Virtual Memory Management
+    --------------------------
+    Inputs: Input a Reference String (page sequence) and number of available physical Frames.
+    Visualization: The app displays a Frame Grid, visually filling slots as pages are loaded and highlighting when a page is swapped out.
+    Simulation: The app flags Page Faults vs. Page Hits and simulates algorithms like FIFO, Optimal, and LRU to calculate the total Page Fault Rate.""",
+
+            "DISK": """Disk Scheduling Algorithms
+    ----------------------------
+    Inputs: Provide the starting head position, total cylinders, and request queue.
+    Visualization: The app plots a path diagram showing the physical movement of the disk head.
+    Simulation: Simulates FCFS, SSTF, SCAN, C-SCAN, LOOK, and C-LOOK to compute total Head Movement (Seek Time) for efficiency comparison."""
+        }
+
+        self.learn_text.config(state="normal")
+        self.learn_text.delete("1.0", "end")
+        self.learn_text.insert("1.0", content_data.get(topic, "Content not found."))
+        self.learn_text.config(state="disabled")
+
+     # ---------------- ABOUT ----------------
+    def create_about_view(self):
+        w, h = 1420, 780
+        self.canvas.delete("ui")
+        
+        cont_img = self.imgs["about_cont"]
+        resized = cont_img.resize((int(w * 0.9), int(h * 0.75)), Image.Resampling.LANCZOS)
+        self.about_cont_tk = ImageTk.PhotoImage(resized)
+        self.canvas.create_image(w // 2, h // 2 + 30, image=self.about_cont_tk, tags="ui")
+        
+        self.create_button("back", "back_button", 0.015, 0.035, self.on_back, scale=0.4)
+        
+        self.about_frame, self.about_text = create_scrollable_text(
+            self, 
+            width=80, 
+            height=15,
+            bg="#193c54",
+            fg="white",
+            font=("Arial", 11)
+        )
+        self.canvas.create_window(w // 2, h // 2 + 100, window=self.about_frame, tags="ui")
+        
+        self.show_about_content()
+
+    def show_about_content(self):
+        content = """GO Rhythm (Ready, Set, GO!)
+    =================================
+
+    Visualizes and simulates different algorithms according to CPU scheduling, 
+    memory allocation, virtual memory, and disk scheduling in modern operating systems. 
+    This educational tool allows users to input custom parameters, step through the execution of 
+    various OS algorithms, and observe real-time visual feedback and computed metrics. 
+    It is designed to bridge the gap between theoretical OS concepts and practical, mechanical understanding.
+
+    Algorithm Categories:
+    ---------------------
+    CPU Scheduling: In a multiprogramming system, the OS decides which process uses the CPU.
+    Memory Allocation: Main memory must accommodate both the OS and user processes efficiently.
+    Virtual Memory: Virtual memory allows a computer to run processes larger than physical RAM.
+    Disk Scheduling: Manages the movement of the disk head to minimize seek time."""
+
+        self.about_text.config(state="normal")
+        self.about_text.delete("1.0", "end")
+        self.about_text.insert("1.0", content)
+        self.about_text.config(state="disabled")
 
     # ---------------- CPU VIEW ----------------
     def create_cpu_view(self):
