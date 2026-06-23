@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 class ProcessTableManager:
-    def __init__(self, main_canvas, parent, base_x, base_y, col_x, headers=None):
+    def __init__(self, main_canvas, parent, base_x, base_y, col_x, headers=None, win_width=285, win_height=270, canvas_width=260):
         self.main_canvas = main_canvas
         self.parent = parent
         
@@ -11,16 +11,20 @@ class ProcessTableManager:
         
         self.container = tk.Frame(self.parent, bg=self.bg_color, bd=0)
 
+        self.win_width = win_width
+        self.win_height = win_height
+        self.canvas_width = canvas_width
+
         self.main_canvas.create_window(
-            base_x, base_y, 
-            window=self.container, 
-            anchor="nw", 
-            tags="ui", 
-            width=285, 
-            height=270 
+            base_x, base_y,
+            window=self.container,
+            anchor="nw",
+            tags="ui",
+            width=self.win_width,
+            height=self.win_height
         )
-        
-        self.canvas = tk.Canvas(self.container, bg=self.bg_color, bd=0, highlightthickness=0, width=260)
+
+        self.canvas = tk.Canvas(self.container, bg=self.bg_color, bd=0, highlightthickness=0, width=self.canvas_width)
         self.scrollbar = ttk.Scrollbar(self.container, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = tk.Frame(self.canvas, bg=self.bg_color)
         
@@ -142,3 +146,4 @@ class ProcessTableManager:
         # Left empty intentionally. 
         # With the grid+frame system, Tkinter handles the redrawing automatically!
         pass
+    
