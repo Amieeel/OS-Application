@@ -22,15 +22,25 @@ ACCENT = "#f4d35e"
 BUTTON_BG = "#23607f"
 BUTTON_ACTIVE_BG = "#347d9e"
 
+import sys
+
+def resource_path(relative_path):
+    """ Get the absolute path to a resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(os.path.dirname(__file__))
+
+    return os.path.join(base_path, relative_path)
 
 def load_virtual_memory_module():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    module_path = os.path.join(script_dir, "Virtual Memory.py")
+    # Use the helper function to find the file whether in Python or as an .exe
+    module_path = resource_path("Virtual_Memory.py")
     spec = importlib.util.spec_from_file_location("virtual_memory", module_path)
     vm = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(vm)
     return vm
-
 
 def create_scrollable_text(parent, width=28, height=6, bg=PANEL_BG_DARK, fg=TEXT_PRIMARY, font=(FONT_FAMILY, 10)):
     """Create a Text widget with scrollbar for scrollable logs"""
@@ -312,7 +322,16 @@ class App(tk.Tk):
     def create_button(self, name, img_name, x, y, command, scale=1.0):
         btn_id = self.canvas.create_image(0, 0, anchor="nw", tags="ui")
 
-        self.canvas.tag_bind(btn_id, "<Button-1>", lambda e: command())
+        def on_click(e):
+            self.canvas.move(btn_id, 2, 2)  
+            self.update_idletasks()         
+            self.after(100, lambda: self.canvas.move(btn_id, -2, -2)) 
+            command()    
+
+        self.canvas.tag_bind(btn_id, "<Button-1>", on_click)
+        
+        self.canvas.tag_bind(btn_id, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
+        self.canvas.tag_bind(btn_id, "<Leave>", lambda e: self.canvas.config(cursor=""))
 
         self.buttons[name] = {
             "img": self.imgs[img_name],
@@ -1687,10 +1706,26 @@ class App(tk.Tk):
             self.draw_cpu_message("Add at least one process with arrival and burst time.")
             return
 
+        # FIX: Convert all table inputs from strings to integers!
+        clean_data = []
+        for row in data:
+            try:
+                # row[0] is the Process Name (e.g., 'P1')
+                clean_row = [row[0]]
+                # The rest (Burst, Arrival, Priority) need to be integers
+                for value in row[1:]:
+                    # Convert to int, default to 0 if the box was left blank
+                    clean_row.append(int(value) if str(value).strip() != "" else 0)
+                clean_data.append(clean_row)
+            except ValueError:
+                self.draw_cpu_message(f"Invalid input for {row[0]}. Please use numbers only.")
+                return
+
         algo = self.selected_algo.get()
 
         try:
-            self.scheduler = scheduling_algorithm(data)
+            # Pass the sanitized integer data to your backend
+            self.scheduler = scheduling_algorithm(clean_data)
 
             if algo == "FCFS":
                 self.result = self.scheduler.FCFS()
@@ -1703,13 +1738,17 @@ class App(tk.Tk):
             elif algo == "Priority (Preemptive)":
                 self.result = self.scheduler.PreemptivePriority()
             elif algo == "Round Robin":
-                self.result = self.scheduler.RoundRobin(self.cpu_quantum_var.get())
+                # Ensure the Quantum is also an integer
+                quantum_val = int(self.cpu_quantum_var.get())
+                self.result = self.scheduler.RoundRobin(quantum_val)
             else:
                 return
 
+        except ValueError:
+            self.draw_cpu_message("Invalid Time Quantum. Please enter a valid number.")
+            return
         except Exception as e:
-            print("Scheduler error:", e)
-            self.draw_cpu_message(str(e))
+            self.draw_cpu_message(f"Error: {str(e)}")
             return
 
         segments = self.result.get("segments", [])
@@ -1725,7 +1764,6 @@ class App(tk.Tk):
         self.draw_cpu_gantt(segments)
         self.draw_cpu_metric_panel(cx - 210, cy - 55, tat, avg_tat)
         self.draw_cpu_metric_panel(cx + 245, cy - 55, wt, avg_wt)
-
 
 if __name__ == "__main__":
     App().mainloop()
