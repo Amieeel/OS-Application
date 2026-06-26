@@ -5,10 +5,12 @@ from cpuschedulingv2 import scheduling_algorithm
 import disk_scheduling
 import importlib.util
 import os
+import sys
 import re
 from Memory_Management import Process as MemProcess, MemoryManager as MemMemoryManager
 from process_manager import ProcessTableManager
-from content_data import LEARN_CONTENT, ABOUT_CONTENT
+from tkinter import messagebox
+import traceback
 
 
 FONT_FAMILY = "Segoe UI"
@@ -22,7 +24,6 @@ ACCENT = "#f4d35e"
 BUTTON_BG = "#23607f"
 BUTTON_ACTIVE_BG = "#347d9e"
 
-import sys
 
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for dev and for PyInstaller """
@@ -34,13 +35,15 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
 def load_virtual_memory_module():
-    # Use the helper function to find the file whether in Python or as an .exe
+    # Fixed to Virtual_Memory.py as requested, using resource_path for the .exe
     module_path = resource_path("Virtual_Memory.py")
     spec = importlib.util.spec_from_file_location("virtual_memory", module_path)
     vm = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(vm)
     return vm
+
 
 def create_scrollable_text(parent, width=28, height=6, bg=PANEL_BG_DARK, fg=TEXT_PRIMARY, font=(FONT_FAMILY, 10)):
     """Create a Text widget with scrollbar for scrollable logs"""
@@ -322,16 +325,7 @@ class App(tk.Tk):
     def create_button(self, name, img_name, x, y, command, scale=1.0):
         btn_id = self.canvas.create_image(0, 0, anchor="nw", tags="ui")
 
-        def on_click(e):
-            self.canvas.move(btn_id, 2, 2)  
-            self.update_idletasks()         
-            self.after(100, lambda: self.canvas.move(btn_id, -2, -2)) 
-            command()    
-
-        self.canvas.tag_bind(btn_id, "<Button-1>", on_click)
-        
-        self.canvas.tag_bind(btn_id, "<Enter>", lambda e: self.canvas.config(cursor="hand2"))
-        self.canvas.tag_bind(btn_id, "<Leave>", lambda e: self.canvas.config(cursor=""))
+        self.canvas.tag_bind(btn_id, "<Button-1>", lambda e: command())
 
         self.buttons[name] = {
             "img": self.imgs[img_name],
@@ -412,7 +406,7 @@ class App(tk.Tk):
         self.create_button("VIRT", "Virt_mem_button", 0.725, 0.27, self.on_virtual, scale=0.72)
 
 
-     # ---------------- LEARN----------------
+    # ---------------- LEARN----------------
     def create_learn_view(self):
         w, h = 1420, 780
         self.canvas.delete("ui")
@@ -435,9 +429,9 @@ class App(tk.Tk):
             text="",
             font=("Century Gothic", 12, "bold"),
             fill="white",
-            width=1000,      
+            width=1000,     
             justify="center",
-            anchor="n",      
+            anchor="n",     
             tags="ui"
         )
 
@@ -446,9 +440,9 @@ class App(tk.Tk):
             text="Click a topic above to learn more.",
             font=("Century Gothic", 11),
             fill="white",
-            width=1000,      
+            width=1000,     
             justify="center",
-            anchor="n",      
+            anchor="n",     
             tags="ui"
         )
         
@@ -477,7 +471,7 @@ class App(tk.Tk):
         self.canvas.itemconfig(self.learn_title_id, text=data["title"])
         self.canvas.itemconfig(self.learn_body_id, text=data["body"])
 
-     # ---------------- ABOUT ----------------
+    # ---------------- ABOUT ----------------
     def create_about_view(self):
         w, h = 1420, 780
         self.canvas.delete("ui")
@@ -549,6 +543,7 @@ class App(tk.Tk):
         self.canvas.itemconfig(self.about_body1_id, text=body1)
         self.canvas.itemconfig(self.about_title2_id, text=title2)
         self.canvas.itemconfig(self.about_body2_id, text=body2)
+
 
     # ---------------- CPU VIEW ----------------
     def create_cpu_view(self):
@@ -787,7 +782,8 @@ class App(tk.Tk):
         self.canvas.create_window(container_x + 490, container_y - 145, window=policy_menu, tags="ui")
         self.style_option_menu(policy_menu, width=9)
 
-        # Process table 
+        # Process table (re-uses ProcessTableManager from CPU view)
+        # Memory management uses only Arrival + Mem requirement (+ optionally Burst)
         need_create = False
         if self.memory_table_manager is None:
             need_create = True
@@ -806,7 +802,7 @@ class App(tk.Tk):
                 base_y=container_y - 155,
                 col_x=[40, 110, 200],
                 headers=["PID", "Arrival", "Burst", "Mem"],
-                win_height=255,
+                win_height=250,
             )
 
             # restore saved data into the table if available
@@ -840,7 +836,7 @@ class App(tk.Tk):
             fg=TEXT_PRIMARY,
             font=(FONT_FAMILY, 10),
             justify="left",
-            width=28,
+            width=24,
             height=2,
             bd=0
         )
@@ -851,7 +847,7 @@ class App(tk.Tk):
         log_frame, self.memory_log_text = create_scrollable_text(
             self,
             width=28,
-            height=20,
+            height=21,
             bg=PANEL_BG_DARK,
             fg=TEXT_PRIMARY,
             font=(FONT_FAMILY, 10)
@@ -1307,15 +1303,15 @@ class App(tk.Tk):
             self.disk_sequence_text.config(state="disabled")
 
     def init_memory_simulation(self):
-        # Collect processes from the memory table if present
+    
         if self.memory_table_manager is not None:
-            table_data = self.memory_table_manager.get_data()
+        def memory_step_simulation(self):
             collected = []
             for row in table_data:
-                # row: [name, burst, arrival, mem]
+            if (not self.memory_sim_running) or (self.memory_completed_count >= len(self.memory_processes)):
                 if len(row) >= 3:
-                    pid = row[0]
-                    burst = int(row[1])
+                self.append_memory_log("--- SIMULATION COMPLETE ---")
+                    burst = int(row[1]) if row[1] is not None else 0
                     arrival = int(row[2])
                     mem_req = int(row[3]) if len(row) > 3 and row[3] is not None else 0
                     collected.append(MemProcess(pid, arrival, burst, mem_req))
@@ -1355,17 +1351,62 @@ class App(tk.Tk):
         self.update_memory_metrics()
         self.draw_memory_map()
 
-    def memory_step_simulation(self):
-        if not self.memory_sim_running or self.memory_completed_count >= len(self.memory_processes):
-            self.append_memory_log("--- SIMULATION COMPLETE ---")
             self.memory_sim_running = False
             if self.memory_step_btn:
-                self.memory_step_btn.config(state="disabled")
+                return
             return
 
         # 1. Check for new arrivals
         for p in self.memory_processes:
-            if p.arrival_time == self.memory_time and p not in self.memory_input_queue and not p.in_memory and p.remaining_burst > 0:
+    
+                p.arrival_time == self.memory_time and
+                p not in self.memory_input_queue and
+                not getattr(p, "in_memory", False) and
+                getattr(p, "remaining_burst", 0) > 0
+            ):
+                self.memory_input_queue.append(p)
+                self.append_memory_log(f"[T={self.memory_time}] {p.pid} arrived. Added to Wait Queue.")
+
+        # 2. Memory Allocation
+        loaded = True
+        while loaded and self.memory_input_queue:
+            # 1. Check for new arrivals
+            for p in list(self.memory_input_queue):
+            for p in self.memory_processes:
+                    self.memory_input_queue.remove(p)
+                    self.memory_ready_queue.append(p)
+                    self.append_memory_log(f"[T={self.memory_time}] {p.pid} loaded into memory at {p.memory_start}K")
+                    loaded = True
+                    break
+
+        # 3. CPU Execution (1ms)
+        if self.memory_ready_queue:
+            curr = self.memory_ready_queue[0]
+            if getattr(curr, "start_time", -1) == -1:
+                if p.arrival_time == self.memory_time and p not in self.memory_input_queue and not p.in_memory and p.remaining_burst > 0:
+
+            curr.remaining_burst -= 1
+            self.memory_quantum_tick += 1
+
+            if curr.remaining_burst == 0:
+                curr.end_time = self.memory_time + 1
+                curr.turnaround_time = curr.end_time - curr.arrival_time
+                curr.waiting_time = curr.turnaround_time - curr.burst_time
+                self.memory_completed_count += 1
+                self.memory_manager.deallocate(curr)
+                self.memory_ready_queue.pop(0)
+                self.memory_quantum_tick = 0
+                self.append_memory_log(f"[T={self.memory_time+1}] {curr.pid} finished! Memory Released.")
+            elif self.memory_quantum_tick == self.memory_quantum:
+                rotated = self.memory_ready_queue.pop(0)
+                self.memory_ready_queue.append(rotated)
+                self.memory_quantum_tick = 0
+                self.append_memory_log(f"[T={self.memory_time+1}] Quantum expired for {rotated.pid}. Context Switch.")
+
+        self.memory_time += 1
+        self.update_memory_metrics()
+        self.draw_memory_map()
+
                 self.memory_input_queue.append(p)
                 self.append_memory_log(f"[T={self.memory_time}] {p.pid} arrived. Added to Wait Queue.")
 
@@ -1706,26 +1747,10 @@ class App(tk.Tk):
             self.draw_cpu_message("Add at least one process with arrival and burst time.")
             return
 
-        # FIX: Convert all table inputs from strings to integers!
-        clean_data = []
-        for row in data:
-            try:
-                # row[0] is the Process Name (e.g., 'P1')
-                clean_row = [row[0]]
-                # The rest (Burst, Arrival, Priority) need to be integers
-                for value in row[1:]:
-                    # Convert to int, default to 0 if the box was left blank
-                    clean_row.append(int(value) if str(value).strip() != "" else 0)
-                clean_data.append(clean_row)
-            except ValueError:
-                self.draw_cpu_message(f"Invalid input for {row[0]}. Please use numbers only.")
-                return
-
         algo = self.selected_algo.get()
 
         try:
-            # Pass the sanitized integer data to your backend
-            self.scheduler = scheduling_algorithm(clean_data)
+            self.scheduler = scheduling_algorithm(data)
 
             if algo == "FCFS":
                 self.result = self.scheduler.FCFS()
@@ -1738,19 +1763,36 @@ class App(tk.Tk):
             elif algo == "Priority (Preemptive)":
                 self.result = self.scheduler.PreemptivePriority()
             elif algo == "Round Robin":
-                # Ensure the Quantum is also an integer
-                quantum_val = int(self.cpu_quantum_var.get())
-                self.result = self.scheduler.RoundRobin(quantum_val)
+                self.result = self.scheduler.RoundRobin(int(self.cpu_quantum_var.get()))
             else:
                 return
 
-        except ValueError:
-            self.draw_cpu_message("Invalid Time Quantum. Please enter a valid number.")
-            return
-        except Exception as e:
-            self.draw_cpu_message(f"Error: {str(e)}")
-            return
+            # SAFETY CHECK: If the scheduler doesn't have process_names, 
+            # we can't draw the metrics, so we stop here.
+            if not hasattr(self.scheduler, 'process_names'):
+                self.draw_cpu_message("Error: Scheduler is missing 'process_names'. Check your cpuschedulingv2.py file.")
+                return
 
+            segments = self.result.get("segments", [])
+            tat = self.result.get("tat", [])
+            wt = self.result.get("wt", [])
+            avg_tat = self.result.get("avg_tat", 0)
+            avg_wt = self.result.get("avg_wt", 0)
+
+            w, h = 1420, 780
+            cx = w // 2
+            cy = h // 2 + 30
+
+            self.draw_cpu_gantt(segments)
+            self.draw_cpu_metric_panel(cx - 210, cy - 55, tat, avg_tat)
+            self.draw_cpu_metric_panel(cx + 245, cy - 55, wt, avg_wt)
+
+        except Exception as e:
+            # This will now catch the error and show it nicely in the GUI
+            self.draw_cpu_message(f"Run Error: {str(e)}")
+            print(f"Full Error: {e}")
+            return
+            
         segments = self.result.get("segments", [])
         tat = self.result.get("tat", [])
         wt = self.result.get("wt", [])
@@ -1764,6 +1806,7 @@ class App(tk.Tk):
         self.draw_cpu_gantt(segments)
         self.draw_cpu_metric_panel(cx - 210, cy - 55, tat, avg_tat)
         self.draw_cpu_metric_panel(cx + 245, cy - 55, wt, avg_wt)
+
 
 if __name__ == "__main__":
     App().mainloop()
